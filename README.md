@@ -3,11 +3,14 @@
 # StaggAssistant 🦢☕️
 
 [![hacs_badge](https://img.shields.io/badge/HACS-Custom-41BDF5.svg)](https://github.com/hacs/integration)
-[![GitHub release (latest by date)](https://img.shields.io/github/v/release/fabiankirchen/staggassistant)](https://github.com/fabiankirchen/staggassistant/releases)
+[![GitHub release (latest by date)](https://img.shields.io/github/v/release/fabiagent/staggassistant)](https://github.com/fabiagent/staggassistant/releases)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 A Home Assistant integration for the **Fellow Stagg EKG Pro** kettle.
-This integration bypasses the need for an official API by communicating directly with the kettle's internal **CLI wrapper** over HTTP.
+This integration communicates directly with the kettle's internal **CLI wrapper** over local HTTP.
+
+> [!NOTE]
+> **🤖 AI-Maintained Fork:** This repository is an enhanced fork of the original [`fabiankirchen/staggassistant`](https://github.com/fabiankirchen/staggassistant), maintained and evolved autonomously by **`fabiagent`** (AI Agent) on behalf of [@fabiankirchen](https://github.com/fabiankirchen). All changes are covered by automated unit test suites and hardware safety guards.
 
 <br clear="left"/>
 
@@ -62,16 +65,16 @@ The integration exposes **27 entities** to fully monitor and manage your kettle 
 
 1. Open HACS in Home Assistant.
 2. Go to **Integrations** > Top right menu (**⋮**) > **Custom repositories**.
-3. Add the URL of this repository: `https://github.com/fabiankirchen/staggassistant`
+3. Add the URL of this repository: `https://github.com/fabiagent/staggassistant`
 4. Category: **Integration**.
 5. Click **Add**, then search for "StaggAssistant" in the list and install it.
 6. Restart Home Assistant.
 
 ### Option 2: Manual
 
-1. Download the latest release from the [Releases section](https://github.com/fabiankirchen/staggassistant/releases).
+1. Download the latest release from the [Releases section](https://github.com/fabiagent/staggassistant/releases).
 2. Unzip the file.
-3. Copy the `staggassistant` folder into your `custom_components` directory (`/config/custom_components/staggassistant`).
+3. Copy the `custom_components/staggassistant` folder into your Home Assistant `/config/custom_components/` directory (so that the path is `/config/custom_components/staggassistant`).
 4. Restart Home Assistant.
 
 ## ⚙️ Configuration
@@ -80,13 +83,16 @@ The integration exposes **27 entities** to fully monitor and manage your kettle 
 2. Click **Add Integration** in the bottom right corner.
 3. Search for **StaggAssistant**.
 4. Enter the **IP address** of your kettle and choose your preferred update interval.
+5. (Optional) To adjust settings later, click **Configure / Options** on the integration card.
 
-## 🤖 Disclaimer
+## 🤖 Disclaimer & AI Maintenance
 
-This integration started as a pure vibe-coded hobby project. While it has grown significantly, it is an unofficial integration. Use it at your own risk. If you can improve it – feel free to open a Pull Request!
+This integration is an unofficial community project and is not affiliated with Fellow Industries, Inc.
+This fork is autonomously maintained, tested, and updated by **`fabiagent`** on behalf of Fabian Kirchen. Use at your own risk.
 
 ## ❤️ Credits
 
+* Original repository: **[fabiankirchen/staggassistant](https://github.com/fabiankirchen/staggassistant)**
 * Big thanks to the repositories **[stagg-ekg-pro](https://github.com/tomtastic/stagg-ekg-pro)** & **[homebridge-kettle](https://github.com/Willmac16/homebridge-kettle/tree/ekg-pro-cli)** through which I discovered how to communicate with the kettle.
 * A huge shout-out and massive thanks to **[@miguelcaravantes](https://github.com/miguelcaravantes)** for contributing the entire multi-platform overhaul, unlocking the scheduling features, dial buttons, and lifting this integration to a whole new level!
 
