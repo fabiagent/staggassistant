@@ -14,35 +14,45 @@ This integration bypasses the need for an official API by communicating directly
 ## ✨ Features
 
 * **Direct CLI Communication:** Sends commands directly to the device's internal interface (e.g., `ss S_Heat`, `settempr`).
-* **Precision Control:** Supports 0.5°C steps for target temperature.
+* **Built-in Safety Blocklist:** Strictly blocks dangerous commands (`heaton`, `heatoff`, `warmon`, `warmoff`, `gpioset`, `reset`) that bypass firmware safety logic and dry-boil protections.
+* **Precision Control:** Supports 0.5°C steps with accurate rounding for target temperature.
 * **Full Remote Control:** Brings the kettle's hardware features straight into Home Assistant, allowing you to comfortably manage settings, clock display, and schedules remotely.
-* **Configurable:** Adjust the update interval to your liking (default: 15s).
+* **Configurable:** Adjust the update interval during setup or anytime later via Options (default: 15s).
 
 ## 📋 Available Entities & Controls
 
-The integration exposes **20 entities** to fully monitor and manage your kettle from Home Assistant:
+The integration exposes **27 entities** to fully monitor and manage your kettle from Home Assistant:
 
 | Platform | Entity | Description |
 | :--- | :--- | :--- |
 | **`climate`** | Kettle Controller | Main thermostat UI to turn on/off and set temperature |
-| **`sensor`** | Current Temperature | Current water temperature |
+| **`sensor`** | Current Temperature | Current water temperature (with statistics history) |
 | **`sensor`** | Target Temperature | Target set temperature |
+| **`sensor`** | Boil Temperature | Altitude-adjusted boiling temperature |
 | **`sensor`** | State Mode | Human-readable kettle state (Off, Heat, Hold, etc.) |
 | **`sensor`** | Clock Time | Current kettle clock time |
 | **`sensor`** | Schedule Time | Scheduled wake-up time (HH:MM) |
 | **`sensor`** | Schedule Temperature | Scheduled target temperature |
+| **`binary_sensor`** | Docked | Detects if the kettle is resting on the base |
+| **`binary_sensor`** | Low Water Warning | Dry-boil / low-water alert (`nw` flag) |
+| **`binary_sensor`** | Target Temperature Reached | Signals when water has reached the desired temperature |
+| **`binary_sensor`** | Pre-Boil Active | Signals when pre-boil heating is actively running |
+| **`binary_sensor`** | Heating Active | Indicates heating element operation |
+| **`binary_sensor`** | Hold Active | Indicates keep-warm mode is actively maintaining temperature |
 | **`switch`** | Pre-Boil | Toggle the pre-boil feature on/off |
 | **`number`** | Hold Time Duration | Set hold time duration in minutes (0–60) |
 | **`number`** | Altitude Setting | Set altitude for boil calibration (0–3000 m) |
 | **`number`** | Chime Volume | Set chime volume (0–10) |
+| **`number`** | Schedule Temperature | Set scheduled target temperature |
 | **`select`** | Clock Style | Choose off, digital, or analog clock display |
 | **`select`** | Language Selection | Supports all 7 internal languages (EN, FR, ES, ZH-Hans, ZH-Hant, KO, JA) |
 | **`select`** | Temperature Units | Switch display units between Celsius and Fahrenheit |
 | **`select`** | Schedule Mode | Choose off, once, or repeat schedule |
 | **`button`** | Press Main Button | Simulate pressing the main dial button (e.g., starts a brew timer) |
-| **`button`** | Press Back Button | Simulate pressing the back button |
+| **`button`** | Press Menu Button | Simulate pressing the back/menu button |
 | **`button`** | Rotate Dial Left | Rotate the dial counter-clockwise |
 | **`button`** | Rotate Dial Right | Rotate the dial clockwise |
+| **`button`** | Start Timer | Long press dial button to start brew timer |
 | **`button`** | Sync Time | Sync current Home Assistant system time to the kettle |
 | **`button`** | Reload Data | Force a manual data refresh from the kettle |
 

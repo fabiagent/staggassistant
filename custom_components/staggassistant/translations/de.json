@@ -18,5 +18,16 @@
     "abort": {
       "already_configured": "Gerät ist bereits konfiguriert."
     }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "StaggAssistant Optionen",
+        "description": "Einstellungen der Integration anpassen.",
+        "data": {
+          "scan_interval": "Update-Intervall (Sekunden)"
+        }
+      }
+    }
   }
 }

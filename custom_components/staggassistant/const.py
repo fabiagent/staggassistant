@@ -8,4 +8,4 @@ CONF_SCAN_INTERVAL = "scan_interval"
 # Default fallback interval in seconds if not configured during setup
 DEFAULT_SCAN_INTERVAL = 15 
 
-PLATFORMS = ["climate", "sensor", "switch", "number", "select", "button"]
+PLATFORMS = ["climate", "sensor", "binary_sensor", "switch", "number", "select", "button"]
