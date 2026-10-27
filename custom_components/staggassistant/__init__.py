@@ -24,6 +24,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     )
 
     coordinator = StaggLinkCoordinator(hass, entry.data["ip_address"], interval)
+    await coordinator.async_load_saved_settings()
     await coordinator.async_config_entry_first_refresh()
 
     enable_extended = entry.options.get(

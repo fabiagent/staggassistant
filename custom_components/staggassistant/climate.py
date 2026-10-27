@@ -63,20 +63,24 @@ class StaggKettleClimate(CoordinatorEntity[StaggLinkCoordinator], ClimateEntity)
         """Return current HVAC mode."""
         if not self.coordinator.data:
             return HVACMode.OFF
-        mode = self.coordinator.data.get("mode")
-        return HVACMode.OFF if mode in ("S_Off", "S_Standby") else HVACMode.HEAT
+        mode = str(self.coordinator.data.get("mode", ""))
+        if mode in ("S_Off", "S_Standby", "S_NoWater", "S_FAIL", "S_OTA"):
+            return HVACMode.OFF
+        if (mode in ("S_Heat", "S_StartupToTempr") or "Heat" in mode) and "HeatOff" not in mode:
+            return HVACMode.HEAT
+        return HVACMode.OFF
 
     @property
     def hvac_action(self) -> HVACAction:
         """Return the current running hvac operation."""
         if not self.coordinator.data:
             return HVACAction.OFF
-        mode = self.coordinator.data.get("mode", "S_Off")
-        if mode in ("S_Off", "S_Standby"):
+        mode = str(self.coordinator.data.get("mode", ""))
+        if mode in ("S_Off", "S_Standby", "S_NoWater", "S_FAIL", "S_OTA"):
             return HVACAction.OFF
-        if "High" in mode or "Heat" in mode or mode == "S_StartupToTempr":
+        if (mode in ("S_Heat", "S_StartupToTempr") or "Heat" in mode) and "HeatOff" not in mode:
             return HVACAction.HEATING
-        return HVACAction.IDLE
+        return HVACAction.OFF
 
     @property
     def icon(self) -> str:
@@ -128,7 +132,9 @@ class StaggKettleClimate(CoordinatorEntity[StaggLinkCoordinator], ClimateEntity)
             # 1. Send temperature target
             await self.coordinator.async_send_command(f"setsettingd settempr {fahrenheit}")
 
-            # 2. Ensure kettle transitions to heating mode
-            await self.coordinator.async_send_command("ss S_Heat")
+            # 2. Only resume / signal heating mode if kettle is already heating
+            mode_str = str(self.coordinator.data.get("mode", "")) if self.coordinator.data else ""
+            if self.hvac_mode == HVACMode.HEAT or "Heat" in mode_str:
+                await self.coordinator.async_send_command("ss S_Heat")
 
             await self.coordinator.async_request_refresh()

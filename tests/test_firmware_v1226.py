@@ -35,10 +35,21 @@ class MockConfigFlow:
     def async_show_form(self, **kwargs):
         return {"type": "form", **kwargs}
 
+class MockOptionsFlow:
+    def __init_subclass__(cls, **kwargs):
+        super().__init_subclass__(**kwargs)
+
+    def async_create_entry(self, title, data):
+        return {"type": "create_entry", "title": title, "data": data}
+
+    def async_show_form(self, **kwargs):
+        return {"type": "form", **kwargs}
+
 sys.modules["homeassistant.helpers.update_coordinator"].CoordinatorEntity = MockCoordinatorEntity
 sys.modules["homeassistant.components.climate"].ClimateEntity = MockClimateEntity
 sys.modules["homeassistant.components.number"].NumberEntity = MockNumberEntity
 sys.modules["homeassistant.config_entries"].ConfigFlow = MockConfigFlow
+sys.modules["homeassistant.config_entries"].OptionsFlow = MockOptionsFlow
 sys.modules["homeassistant"].config_entries = sys.modules["homeassistant.config_entries"]
 sys.modules.pop("custom_components.staggassistant.config_flow", None)
 if "voluptuous" not in sys.modules:
@@ -50,7 +61,10 @@ from custom_components.staggassistant.binary_sensor import (
     StaggBinarySensor,
 )
 from custom_components.staggassistant.climate import StaggKettleClimate
-from custom_components.staggassistant.config_flow import StaggAssistantConfigFlow
+from custom_components.staggassistant.config_flow import (
+    StaggAssistantConfigFlow,
+    StaggAssistantOptionsFlow,
+)
 from custom_components.staggassistant.coordinator import (
     BLOCKED_COMMANDS,
     StaggLinkCoordinator,
@@ -118,9 +132,14 @@ class TestFirmware1226AndHardening(unittest.IsolatedAsyncioTestCase):
         self.assertIsNone(_parse_float(float("nan")))
         self.assertIsNone(_parse_float(-15.0))
         self.assertIsNone(_parse_float("-273.15"))
+        self.assertIsNone(_parse_float(-10.1))
+        self.assertIsNone(_parse_float(150.1))
+        self.assertIsNone(_parse_float(999.0))
         self.assertIsNone(_parse_float("invalid"))
+        self.assertEqual(_parse_float(-10), -10.0)
         self.assertEqual(_parse_float(0), 0.0)
         self.assertEqual(_parse_float("50.5"), 50.5)
+        self.assertEqual(_parse_float(150), 150.0)
 
     # 2. Firmware 1.2.26 /temp JSON endpoint tests
     async def test_firmware_1_2_26_normal_idle(self):
@@ -281,7 +300,7 @@ class TestFirmware1226AndHardening(unittest.IsolatedAsyncioTestCase):
 
     # 6. Climate setsettingd settempr verification
     async def test_climate_target_temperature_command(self):
-        """Verify climate async_set_temperature sends setsettingd settempr."""
+        """Verify climate async_set_temperature sends setsettingd settempr and only heats if already active."""
         sent_commands = []
 
         async def fake_send(cmd):
@@ -295,10 +314,21 @@ class TestFirmware1226AndHardening(unittest.IsolatedAsyncioTestCase):
         entry.data = {"ip_address": "192.168.1.100", "name": "Kettle"}
         climate = StaggKettleClimate(self.coordinator, entry)
 
+        # 1. When kettle is off: setting target temperature should NOT trigger ss S_Heat
+        self.coordinator.data = {"mode": "S_Off"}
         await climate.async_set_temperature(temperature=85.0)
 
         # 85 C = 185 F
         self.assertIn("setsettingd settempr 185", sent_commands)
+        self.assertNotIn("ss S_Heat", sent_commands)
+
+        # 2. When kettle is already heating: setting target temperature SHOULD send ss S_Heat
+        sent_commands.clear()
+        self.coordinator.data = {"mode": "S_Heat"}
+        await climate.async_set_temperature(temperature=90.0)
+
+        # 90 C = 194 F
+        self.assertIn("setsettingd settempr 194", sent_commands)
         self.assertIn("ss S_Heat", sent_commands)
 
     # 7. Legacy fallback when /temp returns 404
@@ -649,15 +679,35 @@ ketl= ho 0 wd 0 nw 0 ipb 0 bf 0 tr 0
         self.assertEqual(climate.hvac_mode, HVACMode.OFF)
         self.assertEqual(climate.hvac_action, HVACAction.OFF)
 
+        # S_NoWater
+        self.coordinator.data = {"mode": "S_NoWater"}
+        self.assertEqual(climate.hvac_mode, HVACMode.OFF)
+        self.assertEqual(climate.hvac_action, HVACAction.OFF)
+
+        # S_FAIL
+        self.coordinator.data = {"mode": "S_FAIL"}
+        self.assertEqual(climate.hvac_mode, HVACMode.OFF)
+        self.assertEqual(climate.hvac_action, HVACAction.OFF)
+
+        # S_OTA
+        self.coordinator.data = {"mode": "S_OTA"}
+        self.assertEqual(climate.hvac_mode, HVACMode.OFF)
+        self.assertEqual(climate.hvac_action, HVACAction.OFF)
+
         # S_Heat
         self.coordinator.data = {"mode": "S_Heat"}
         self.assertEqual(climate.hvac_mode, HVACMode.HEAT)
         self.assertEqual(climate.hvac_action, HVACAction.HEATING)
 
-        # S_Hold
-        self.coordinator.data = {"mode": "S_Hold"}
+        # S_StartupToTempr
+        self.coordinator.data = {"mode": "S_StartupToTempr"}
         self.assertEqual(climate.hvac_mode, HVACMode.HEAT)
-        self.assertEqual(climate.hvac_action, HVACAction.IDLE)
+        self.assertEqual(climate.hvac_action, HVACAction.HEATING)
+
+        # S_Hold (idle / non-heating)
+        self.coordinator.data = {"mode": "S_Hold"}
+        self.assertEqual(climate.hvac_mode, HVACMode.OFF)
+        self.assertEqual(climate.hvac_action, HVACAction.OFF)
 
     # 15. Firmware 1.2.26 actuator and bench commands blocked
     async def test_firmware_1_2_26_blocked_actuator_commands(self):
@@ -712,6 +762,133 @@ ketl= ho 0 wd 0 nw 0 ipb 0 bf 0 tr 0
         # None / missing mode
         self.coordinator.data = {}
         self.assertIsNone(sensor.native_value)
+
+    # 17. OptionsFlow modern signature and execution
+    async def test_options_flow_signature_and_execution(self):
+        """Test OptionsFlow takes no __init__ args and handles steps properly."""
+        entry = MagicMock()
+        entry.data = {"ip_address": "192.168.1.100", "scan_interval": 15, "enable_extended_entities": False}
+        entry.options = {}
+
+        # async_get_options_flow returns StaggAssistantOptionsFlow() with no arguments
+        flow = StaggAssistantConfigFlow.async_get_options_flow(entry)
+        self.assertIsInstance(flow, StaggAssistantOptionsFlow)
+
+        # In modern HA, HA sets flow.config_entry
+        flow.config_entry = entry
+
+        # Test initial form show
+        form_res = await flow.async_step_init()
+        self.assertEqual(form_res["type"], "form")
+        self.assertEqual(form_res["step_id"], "init")
+
+        # Test options submission
+        submit_res = await flow.async_step_init({"scan_interval": 30, "enable_extended_entities": True})
+        self.assertEqual(submit_res["type"], "create_entry")
+        self.assertEqual(submit_res["data"]["scan_interval"], 30)
+        self.assertTrue(submit_res["data"]["enable_extended_entities"])
+
+    # 18. Settings cache persistent storage (survives HA restarts)
+    async def test_settings_cache_storage_persistence(self):
+        """Test coordinator loads saved settings on startup and persists updates."""
+        mock_hass = MagicMock()
+        coord = StaggLinkCoordinator(mock_hass, "192.168.1.100", 15)
+
+        # 1. Simulate existing persisted settings in HA storage
+        coord._store.async_load = AsyncMock(return_value={
+            "hold_time_minutes": 45,
+            "altitude_meters": 1200,
+            "chime_volume": 7,
+            "clock_mode": 1,
+        })
+        coord._store.async_save = AsyncMock()
+
+        await coord.async_load_saved_settings()
+        self.assertEqual(coord._cached_settings["hold_time_minutes"], 45)
+        self.assertEqual(coord._cached_settings["altitude_meters"], 1200)
+        self.assertEqual(coord._cached_settings["chime_volume"], 7)
+        self.assertEqual(coord._cached_settings["clock_mode"], 1)
+
+        # 2. When async_send_command sends a command, settings are persisted
+        mock_resp = AsyncMock()
+        mock_resp.status = 200
+        mock_resp.raise_for_status = MagicMock()
+        mock_resp.read = AsyncMock(return_value=b"OK")
+        mock_resp.text = AsyncMock(return_value="OK")
+        mock_cm = AsyncMock()
+        mock_cm.__aenter__.return_value = mock_resp
+        coord.session.get = MagicMock(return_value=mock_cm)
+
+        await coord.async_send_command("setsetting hold 25")
+        self.assertEqual(coord._cached_settings["hold_time_minutes"], 25)
+        coord._store.async_save.assert_called()
+        last_saved = coord._store.async_save.call_args[0][0]
+        self.assertEqual(last_saved["hold_time_minutes"], 25)
+        self.assertEqual(last_saved["altitude_meters"], 1200)
+
+    # 19. Config flow IP input validation and injection rejection
+    async def test_config_flow_input_validation_and_rejection(self):
+        """Test config flow rejects dangerous or invalid IP addresses and hostnames."""
+        flow = StaggAssistantConfigFlow()
+        flow.hass = MagicMock()
+
+        invalid_hosts = [
+            "192.168.1.1/evil",
+            "192.168.1.1?cmd=foo",
+            "192.168.1.1#section",
+            "admin@192.168.1.1",
+            "192.168. 1.1",
+            "kettle:8080",
+            "2001:db8::1",  # IPv6 not accepted
+            "invalid..host",
+        ]
+
+        for host in invalid_hosts:
+            with self.subTest(host=host):
+                res = await flow.async_step_user({"ip_address": host})
+                self.assertEqual(res["type"], "form")
+                self.assertIn("ip_address", res["errors"])
+                self.assertEqual(res["errors"]["ip_address"], "invalid_ip")
+
+    # 20. Config flow /temp endpoint validation and fallback
+    async def test_config_flow_temp_endpoint_malformed_json_fallback(self):
+        """Test that malformed JSON or non-dict payloads on /temp fall back to legacy CLI."""
+        flow = StaggAssistantConfigFlow()
+        flow.hass = MagicMock()
+        flow.async_set_unique_id = AsyncMock()
+        flow._abort_if_unique_id_configured = MagicMock()
+
+        # Mock /temp returning invalid JSON or array
+        resp_temp = AsyncMock()
+        resp_temp.status = 200
+        resp_temp.read = AsyncMock(return_value=b'["not", "a", "dict"]')
+        resp_temp.text = AsyncMock(return_value='["not", "a", "dict"]')
+        cm_temp = AsyncMock()
+        cm_temp.__aenter__.return_value = resp_temp
+
+        # Mock legacy /cli?cmd=state returning valid state
+        resp_cli = AsyncMock()
+        resp_cli.status = 200
+        resp_cli.read = AsyncMock(return_value=b"mode=S_Off\ntempr=22.0 C\n")
+        resp_cli.text = AsyncMock(return_value="mode=S_Off\ntempr=22.0 C\n")
+        cm_cli = AsyncMock()
+        cm_cli.__aenter__.return_value = resp_cli
+
+        def side_effect(url, **kwargs):
+            if "/temp" in url:
+                return cm_temp
+            return cm_cli
+
+        session = MagicMock()
+        session.get = MagicMock(side_effect=side_effect)
+
+        with unittest.mock.patch(
+            "custom_components.staggassistant.config_flow.async_get_clientsession",
+            return_value=session,
+        ):
+            result = await flow.async_step_user({"ip_address": "192.168.1.100"})
+            self.assertEqual(result["type"], "create_entry")
+            self.assertEqual(result["data"]["ip_address"], "192.168.1.100")
 
 
 if __name__ == "__main__":

@@ -9,6 +9,7 @@ import aiohttp
 
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
+from homeassistant.helpers.storage import Store
 from homeassistant.helpers.update_coordinator import DataUpdateCoordinator, UpdateFailed
 
 _LOGGER = logging.getLogger(__name__)
@@ -35,6 +36,24 @@ BLOCKED_COMMANDS = {
     "lpnow",
 }
 
+# Strict safety allowlist for legitimate commands
+ALLOWED_COMMAND_PATTERNS = [
+    re.compile(r"^ss (S_Heat|S_Off)$"),
+    re.compile(r"^setsettingd settempr (?:1[0-9]{2}|20[0-9]|21[0-2])$"),
+    re.compile(r"^setsetting hold ([0-9]|[1-5][0-9]|60)$"),
+    re.compile(r"^setsetting boil [01]$"),
+    re.compile(r"^setsetting chime ([0-9]|10)$"),
+    re.compile(r"^setsetting language [0-6]$"),
+    re.compile(r"^setsetting clockmode [0-2]$"),
+    re.compile(r"^setsetting schedon [01]$"),
+    re.compile(r"^setsetting repeat_sched [01]$", re.IGNORECASE),
+    re.compile(r"^setsetting schtempr (?:1[0-9]{2}|20[0-9]|21[0-2])$"),
+    re.compile(r"^setsetting schtime (?:[01]?[0-9]|2[0-3]):[0-5][0-9]$"),
+    re.compile(r"^setaltitudem ([0-9]{1,3}|[12][0-9]{3}|3000)$"),
+    re.compile(r"^setclock (?:[01]?[0-9]|2[0-3]) [0-5]?[0-9] [0-5]?[0-9]$"),
+    re.compile(r"^(setdigital|setanalog|setunitsc|setunitsf|1|2|q|w|2d|2u)$"),
+]
+
 DEFAULT_SETTINGS = {
     "hold_time_minutes": 30,
     "hold_enabled": 1,
@@ -54,18 +73,32 @@ DEFAULT_SETTINGS = {
 
 
 def _parse_float(value) -> float | None:
-    """Parse float safely, handling None, NaN, -nan, +nan, and negative disconnected readings."""
+    """Parse float safely, handling None, NaN, -nan, +nan, and out-of-range disconnected readings."""
     if value is None:
         return None
     if isinstance(value, str) and "nan" in value.lower():
         return None
     try:
         val = float(value)
-        if math.isnan(val) or val < -10:
+        if math.isnan(val) or not (-10 <= val <= 150):
             return None
         return val
     except (ValueError, TypeError):
         return None
+
+
+async def _read_response_text(response, limit: int = 65536) -> str:
+    """Read response text up to byte limit safely."""
+    if hasattr(response, "read"):
+        raw = await response.read()
+        if isinstance(raw, bytes):
+            return raw[:limit].decode("utf-8", errors="ignore")
+        if isinstance(raw, str):
+            return raw[:limit]
+    if hasattr(response, "text"):
+        txt = await response.text()
+        return txt[:limit]
+    return ""
 
 
 class StaggLinkCoordinator(DataUpdateCoordinator):
@@ -86,6 +119,28 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
         elevation = getattr(getattr(hass, "config", None), "elevation", 0) or 0
         self._cached_settings["altitude_meters"] = int(elevation)
         self._prtsettings_supported: bool | None = None
+        self._store = Store(hass, 1, f"staggassistant_{self.ip.replace('.', '_')}")
+        self._settings_loaded = False
+
+    async def async_load_saved_settings(self) -> None:
+        """Load cached settings from persistent Home Assistant storage."""
+        if self._store:
+            try:
+                stored = await self._store.async_load()
+                if isinstance(stored, dict):
+                    self._cached_settings.update(stored)
+                    _LOGGER.debug("Loaded cached settings from storage for %s", self.ip)
+            except Exception as err:
+                _LOGGER.warning("Could not load stored settings for %s: %s", self.ip, err)
+        self._settings_loaded = True
+
+    async def _async_save_cached_settings(self) -> None:
+        """Persist cached settings to Home Assistant storage."""
+        if self._store:
+            try:
+                await self._store.async_save(dict(self._cached_settings))
+            except Exception as err:
+                _LOGGER.warning("Could not persist cached settings for %s: %s", self.ip, err)
 
     def _optimistically_update_settings(self, clean_cmd: str) -> None:
         """Update cached settings optimistically based on sent CLI commands."""
@@ -161,7 +216,11 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
         tokens = [t.lower() for t in clean_cmd.split()]
         if any(t in BLOCKED_COMMANDS for t in tokens) or clean_cmd.lower() == "ss":
             _LOGGER.error("Blocked potentially dangerous command: '%s'", clean_cmd)
-            raise HomeAssistantError(f"Command '{clean_cmd}' is blocked for safety.")
+            raise HomeAssistantError("Command not permitted by safety allowlist.")
+
+        if not any(pattern.match(clean_cmd) for pattern in ALLOWED_COMMAND_PATTERNS):
+            _LOGGER.error("Blocked command not permitted by safety allowlist: '%s'", clean_cmd)
+            raise HomeAssistantError("Command not permitted by safety allowlist.")
 
         encoded_cmd = "+".join(clean_cmd.split())
         url = f"http://{self.ip}/cli?cmd={encoded_cmd}"
@@ -171,7 +230,7 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
                 async with asyncio.timeout(10):
                     async with self.session.get(url) as response:
                         response.raise_for_status()
-                        result = await response.text()
+                        result = await _read_response_text(response, 65536)
         except asyncio.TimeoutError as err:
             _LOGGER.error("Timeout sending command '%s' to %s", clean_cmd, self.ip)
             raise HomeAssistantError(f"Timeout communicating with Stagg kettle at {self.ip}") from err
@@ -181,6 +240,7 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
 
         # Optimistically update cached settings based on sent command
         self._optimistically_update_settings(clean_cmd)
+        await self._async_save_cached_settings()
 
         return result
 
@@ -188,15 +248,16 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
         """Attempt to read and parse the /temp JSON endpoint (Firmware 1.2.26+)."""
         url = f"http://{self.ip}/temp"
         try:
-            async with self.session.get(url) as response:
-                if response.status != 200:
-                    return None
-                raw_text = await response.text()
-                # Sanitize unquoted nan / -nan / +nan before json.loads
-                sanitized = re.sub(r':\s*[-+]?nan\b', ': null', raw_text, flags=re.IGNORECASE)
-                data = json.loads(sanitized)
-                if isinstance(data, dict) and ("state" in data or ("temp" in data and "temp_set" in data)):
-                    return data
+            async with asyncio.timeout(6):
+                async with self.session.get(url) as response:
+                    if response.status != 200:
+                        return None
+                    raw_text = await _read_response_text(response, 65536)
+                    # Sanitize unquoted nan / -nan / +nan before json.loads
+                    sanitized = re.sub(r':\s*[-+]?nan\b', ': null', raw_text, flags=re.IGNORECASE)
+                    data = json.loads(sanitized)
+                    if isinstance(data, dict) and ("state" in data or ("temp" in data and "temp_set" in data)):
+                        return data
         except Exception as err:
             _LOGGER.debug("Failed to read /temp JSON endpoint: %s", err)
             return None
@@ -205,6 +266,9 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
     async def _async_update_data(self):
         """Fetch data from the kettle via HTTP endpoints."""
         try:
+            if not self._settings_loaded:
+                await self.async_load_saved_settings()
+
             async with self._lock:
                 async with asyncio.timeout(20):
                     temp_data = await self._async_read_temp_json()
@@ -228,9 +292,10 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
                     else:
                         # Fallback to GET http://{self.ip}/cli?cmd=state
                         state_url = f"http://{self.ip}/cli?cmd=state"
-                        async with self.session.get(state_url) as response:
-                            response.raise_for_status()
-                            state_text = await response.text()
+                        async with asyncio.timeout(6):
+                            async with self.session.get(state_url) as response:
+                                response.raise_for_status()
+                                state_text = await _read_response_text(response, 65536)
 
                         temp_match = re.search(r'(?i)\btempr(?![TB])\s*=\s*(-?[0-9.]+|[-+]?nan)', state_text)
                         target_match = re.search(r'(?i)\btemprT\s*=\s*(-?[0-9.]+|[-+]?nan)', state_text)
@@ -270,9 +335,10 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
                     if self._prtsettings_supported is not False:
                         settings_url = f"http://{self.ip}/cli?cmd=prtsettings"
                         try:
-                            async with self.session.get(settings_url) as resp_settings:
-                                resp_settings.raise_for_status()
-                                settings_text = await resp_settings.text()
+                            async with asyncio.timeout(6):
+                                async with self.session.get(settings_url) as resp_settings:
+                                    resp_settings.raise_for_status()
+                                    settings_text = await _read_response_text(resp_settings, 65536)
                         except Exception as err:
                             _LOGGER.debug("Could not fetch prtsettings: %s", err)
                             settings_text = ""
@@ -345,6 +411,8 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
                             self._cached_settings["schedule_time"] = sch_time_val
                         if sch_tempr_c is not None:
                             self._cached_settings["schedule_temperature"] = sch_tempr_c
+
+                        await self._async_save_cached_settings()
 
                     if clock_time is not None:
                         self._cached_settings["clock_time"] = clock_time

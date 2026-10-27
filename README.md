@@ -18,10 +18,10 @@ This integration communicates directly with the kettle's internal **CLI wrapper*
 
 * **Dual Firmware Architecture (v1.2.26+ & Legacy):** Automatically leverages the modern `/temp` JSON endpoint on newer firmware versions while seamlessly falling back to `/cli` commands on legacy versions. Robustly handles lifted kettle readings (`NaN`, `-nan`, null).
 * **Direct CLI Communication:** Sends commands directly to the device's internal interface using URL encoding safeguards (`+` separator) and `asyncio.Lock` concurrency protection.
-* **Built-in Safety Blocklist & Injection Prevention:** Strictly blocks dangerous commands (`heaton`, `heatoff`, `warmon`, `warmoff`, `warmduty`, `gpioset`, `reset`, `clrsettings`, `wifierase`, `wifioff`, `provreset`, `eraseotherpart`, `adcsamples`, `ss`) and guards against command injection (`\n`, `\r`, `;`, control characters).
-* **Precision Control:** Supports 0.5°C steps with accurate rounding for target temperature via hardware-verified commands (`setsettingd settempr`).
-* **Full Remote Control & Optimistic Settings Cache:** Brings all kettle hardware features into Home Assistant and maintains responsive UI state even when settings command outputs are restricted by firmware.
-* **Configurable:** Adjust the update interval during setup or anytime later via Options (default: 15s).
+* **Strict Command Allowlist & Injection Prevention:** Validates all outgoing commands against a strict regex allowlist and blocklist to prevent command injection, raw GPIO heater activation, or destructive wipes.
+* **Persistent Settings Storage:** Persists kettle settings (hold duration, chime, altitude, schedule, clock mode) using Home Assistant's native storage (`Store`) so settings are retained across Home Assistant restarts even when firmware restricts reading.
+* **Precision Temperature Control:** Supports 0.5°C steps with accurate rounding for target temperature via hardware-verified commands (`setsettingd settempr`), safely preventing unintended heater activation when adjusting target temperatures while off.
+* **Configurable:** Adjust the update interval and extended entity visibility during setup or anytime later via Options (default: 15s).
 
 ## 📋 Available Entities & Controls
 

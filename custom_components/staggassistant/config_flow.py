@@ -1,5 +1,8 @@
 """Config flow and options flow for Fellow Stagg EKG Pro integration."""
 import asyncio
+import ipaddress
+import json
+import re
 import voluptuous as vol
 
 from homeassistant import config_entries
@@ -17,6 +20,37 @@ from .const import (
 )
 
 
+def _is_valid_host(host: str) -> bool:
+    """Validate if string is a valid IPv4 address or hostname."""
+    if not host or any(c in host for c in ("/", "?", "#", "@", " ", "\t", "\n", "\r", ":")):
+        return False
+    try:
+        ip = ipaddress.ip_address(host)
+        return ip.version == 4
+    except ValueError:
+        pass
+    if len(host) > 253:
+        return False
+    hostname_regex = re.compile(
+        r"^(?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$"
+    )
+    return bool(hostname_regex.match(host))
+
+
+async def _read_response_text(response, limit: int = 65536) -> str:
+    """Read response text up to byte limit safely."""
+    if hasattr(response, "read"):
+        raw = await response.read()
+        if isinstance(raw, bytes):
+            return raw[:limit].decode("utf-8", errors="ignore")
+        if isinstance(raw, str):
+            return raw[:limit]
+    if hasattr(response, "text"):
+        txt = await response.text()
+        return txt[:limit]
+    return ""
+
+
 class StaggAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     """Handle a config flow for StaggAssistant."""
 
@@ -28,48 +62,55 @@ class StaggAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             ip = user_input[CONF_IP_ADDRESS].strip()
 
-            # Guard against duplicate entries for the same device IP
-            await self.async_set_unique_id(ip)
-            self._abort_if_unique_id_configured()
+            if not _is_valid_host(ip):
+                errors[CONF_IP_ADDRESS] = "invalid_ip"
+            else:
+                # Guard against duplicate entries for the same device IP
+                await self.async_set_unique_id(ip)
+                self._abort_if_unique_id_configured()
 
-            session = async_get_clientsession(self.hass)
-            connected = False
-            try:
-                # 1. Try modern /temp JSON endpoint (Firmware 1.2.26+)
-                temp_url = f"http://{ip}/temp"
+                session = async_get_clientsession(self.hass)
+                connected = False
                 try:
-                    async with asyncio.timeout(5):
-                        async with session.get(temp_url) as response:
-                            if response.status == 200:
-                                text = await response.text()
-                                if "state" in text or "temp" in text:
-                                    connected = True
-                except (asyncio.TimeoutError, Exception):
-                    connected = False
+                    # 1. Try modern /temp JSON endpoint (Firmware 1.2.26+)
+                    temp_url = f"http://{ip}/temp"
+                    try:
+                        async with asyncio.timeout(5):
+                            async with session.get(temp_url) as response:
+                                if response.status == 200:
+                                    raw_text = await _read_response_text(response, 65536)
+                                    sanitized = re.sub(r':\s*[-+]?nan\b', ': null', raw_text, flags=re.IGNORECASE)
+                                    data = json.loads(sanitized)
+                                    if isinstance(data, dict) and (
+                                        "state" in data or ("temp" in data and "temp_set" in data)
+                                    ):
+                                        connected = True
+                    except (asyncio.TimeoutError, Exception):
+                        connected = False
 
-                # 2. Fall back to /cli?cmd=state (Legacy firmware)
-                if not connected:
-                    cli_url = f"http://{ip}/cli?cmd=state"
-                    async with asyncio.timeout(5):
-                        async with session.get(cli_url) as response:
-                            if response.status == 200:
-                                text = await response.text()
-                                if "mode=" in text or "tempr=" in text:
-                                    connected = True
+                    # 2. Fall back to /cli?cmd=state (Legacy firmware)
+                    if not connected:
+                        cli_url = f"http://{ip}/cli?cmd=state"
+                        async with asyncio.timeout(5):
+                            async with session.get(cli_url) as response:
+                                if response.status == 200:
+                                    text = await _read_response_text(response, 65536)
+                                    if "mode=" in text or "tempr=" in text:
+                                        connected = True
+                                    else:
+                                        errors["base"] = "invalid_auth"
                                 else:
-                                    errors["base"] = "invalid_auth"
-                            else:
-                                errors["base"] = "cannot_connect"
+                                    errors["base"] = "cannot_connect"
 
-                if connected:
-                    return self.async_create_entry(
-                        title=user_input.get(CONF_NAME, "Stagg Kettle"),
-                        data=user_input,
-                    )
-                elif "base" not in errors:
+                    if connected:
+                        return self.async_create_entry(
+                            title=user_input.get(CONF_NAME, "Stagg Kettle"),
+                            data=user_input,
+                        )
+                    elif "base" not in errors:
+                        errors["base"] = "cannot_connect"
+                except (asyncio.TimeoutError, Exception):
                     errors["base"] = "cannot_connect"
-            except (asyncio.TimeoutError, Exception):
-                errors["base"] = "cannot_connect"
 
         return self.async_show_form(
             step_id="user",
@@ -87,15 +128,11 @@ class StaggAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
     @callback
     def async_get_options_flow(config_entry: config_entries.ConfigEntry) -> config_entries.OptionsFlow:
         """Get the options flow for this handler."""
-        return StaggAssistantOptionsFlow(config_entry)
+        return StaggAssistantOptionsFlow()
 
 
 class StaggAssistantOptionsFlow(config_entries.OptionsFlow):
     """Handle StaggAssistant options."""
-
-    def __init__(self, config_entry: config_entries.ConfigEntry) -> None:
-        """Initialize options flow."""
-        self.config_entry = config_entry
 
     async def async_step_init(self, user_input=None):
         """Manage integration options (e.g. polling interval)."""

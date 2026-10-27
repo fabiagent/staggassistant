@@ -13,7 +13,8 @@
     },
     "error": {
       "cannot_connect": "Connection failed (Timeout).",
-      "invalid_auth": "Device responds, but is not a Stagg EKG Pro."
+      "invalid_auth": "Device responds, but is not a Stagg EKG Pro.",
+      "invalid_ip": "Invalid IP address or hostname format."
     },
     "abort": {
       "already_configured": "Device is already configured."

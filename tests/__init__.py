@@ -60,10 +60,55 @@ if "homeassistant" not in sys.modules:
     ha_device_reg.DeviceInfo = MockDeviceInfo
     sys.modules["homeassistant.helpers.device_registry"] = ha_device_reg
 
+    class MockStore:
+        def __init__(self, hass, version, key):
+            self.hass = hass
+            self.version = version
+            self.key = key
+            self._data = None
+
+        async def async_load(self):
+            return self._data
+
+        async def async_save(self, data):
+            self._data = dict(data)
+
+    ha_storage = MagicMock()
+    ha_storage.Store = MockStore
+    sys.modules["homeassistant.helpers.storage"] = ha_storage
+
+    class MockConfigFlow:
+        def __init__(self, *args, **kwargs):
+            self.hass = MagicMock()
+            self.unique_id = None
+
+        async def async_set_unique_id(self, unique_id):
+            self.unique_id = unique_id
+
+        def _abort_if_unique_id_configured(self):
+            pass
+
+        def async_show_form(self, step_id, data_schema=None, errors=None):
+            return {"type": "form", "step_id": step_id, "data_schema": data_schema, "errors": errors}
+
+        def async_create_entry(self, title, data):
+            return {"type": "create_entry", "title": title, "data": data}
+
+    class MockOptionsFlow:
+        def __init__(self, *args, **kwargs):
+            self.hass = MagicMock()
+            self.config_entry = None
+
+        def async_show_form(self, step_id, data_schema=None, errors=None):
+            return {"type": "form", "step_id": step_id, "data_schema": data_schema, "errors": errors}
+
+        def async_create_entry(self, title, data):
+            return {"type": "create_entry", "title": title, "data": data}
+
     ha_entries = MagicMock()
     ha_entries.ConfigEntry = MagicMock
-    ha_entries.ConfigFlow = MagicMock
-    ha_entries.OptionsFlow = MagicMock
+    ha_entries.ConfigFlow = MockConfigFlow
+    ha_entries.OptionsFlow = MockOptionsFlow
     sys.modules["homeassistant.config_entries"] = ha_entries
 
     ha_core = MagicMock()
