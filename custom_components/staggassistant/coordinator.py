@@ -78,6 +78,8 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
         self.session = async_get_clientsession(hass)
         self._lock = asyncio.Lock()
         self._cached_settings: dict = dict(DEFAULT_SETTINGS)
+        elevation = getattr(getattr(hass, "config", None), "elevation", 0) or 0
+        self._cached_settings["altitude_meters"] = int(elevation)
         self._prtsettings_supported: bool | None = None
 
     def _optimistically_update_settings(self, clean_cmd: str) -> None:
@@ -341,6 +343,13 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
 
                     if clock_time is not None:
                         self._cached_settings["clock_time"] = clock_time
+
+                    if boil_temp is None:
+                        altitude = self._cached_settings.get("altitude_meters", 0) or 0
+                        try:
+                            boil_temp = round(100.0 - (float(altitude) / 285.0), 1)
+                        except (ValueError, TypeError):
+                            boil_temp = 100.0
 
                     is_docked = current_temp is not None
 

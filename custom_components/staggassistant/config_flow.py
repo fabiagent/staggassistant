@@ -7,9 +7,11 @@ from homeassistant.core import callback
 from homeassistant.helpers.aiohttp_client import async_get_clientsession
 
 from .const import (
+    CONF_ENABLE_EXTENDED_ENTITIES,
     CONF_IP_ADDRESS,
     CONF_NAME,
     CONF_SCAN_INTERVAL,
+    DEFAULT_ENABLE_EXTENDED_ENTITIES,
     DEFAULT_SCAN_INTERVAL,
     DOMAIN,
 )
@@ -104,6 +106,12 @@ class StaggAssistantOptionsFlow(config_entries.OptionsFlow):
             CONF_SCAN_INTERVAL,
             self.config_entry.data.get(CONF_SCAN_INTERVAL, DEFAULT_SCAN_INTERVAL),
         )
+        current_extended = self.config_entry.options.get(
+            CONF_ENABLE_EXTENDED_ENTITIES,
+            self.config_entry.data.get(
+                CONF_ENABLE_EXTENDED_ENTITIES, DEFAULT_ENABLE_EXTENDED_ENTITIES
+            ),
+        )
 
         return self.async_show_form(
             step_id="init",
@@ -111,5 +119,6 @@ class StaggAssistantOptionsFlow(config_entries.OptionsFlow):
                 vol.Optional(CONF_SCAN_INTERVAL, default=current_interval): vol.All(
                     vol.Coerce(int), vol.Range(min=5, max=120)
                 ),
+                vol.Optional(CONF_ENABLE_EXTENDED_ENTITIES, default=current_extended): bool,
             }),
         )

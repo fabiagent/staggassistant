@@ -23,9 +23,10 @@
     "step": {
       "init": {
         "title": "StaggAssistant Options",
-        "description": "Adjust integration settings.",
+        "description": "Adjust integration settings.\n\n⚠️ **Notice on extended entities:** On firmware 1.2.26+, Fellow blocks reading device settings over Wi-Fi. Extended switches, sliders, and sensors (hold duration, chime volume, boil temperature, schedule, altitude) rely on local optimistic caching and estimates, and are hidden by default to avoid 'Unknown' states.",
         "data": {
-          "scan_interval": "Update Interval (Seconds)"
+          "scan_interval": "Update Interval (Seconds)",
+          "enable_extended_entities": "Enable extended settings & sensors (Advanced)"
         }
       }
     }

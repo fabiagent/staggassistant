@@ -10,10 +10,12 @@ from homeassistant.components.binary_sensor import (
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import CONF_ENABLE_EXTENDED_ENTITIES, DEFAULT_ENABLE_EXTENDED_ENTITIES, DOMAIN
 from .coordinator import StaggLinkCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+EXTENDED_BINARY_SENSOR_KEYS = {"no_water", "in_pre_boil"}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -36,6 +38,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[StaggBinarySensorDescription, ...] = (
         name="Low Water Warning",
         device_class=BinarySensorDeviceClass.PROBLEM,
         icon="mdi:water-alert",
+        entity_registry_enabled_default=False,
     ),
     StaggBinarySensorDescription(
         key="target_reached",
@@ -46,6 +49,7 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[StaggBinarySensorDescription, ...] = (
         key="in_pre_boil",
         name="Pre-Boil Active",
         icon="mdi:water-boiler",
+        entity_registry_enabled_default=False,
     ),
     StaggBinarySensorDescription(
         key="is_heating",
@@ -63,10 +67,16 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[StaggBinarySensorDescription, ...] = (
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up StaggLink binary sensors from a config entry."""
     coordinator: StaggLinkCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
-        [StaggBinarySensor(coordinator, entry, desc) for desc in BINARY_SENSOR_DESCRIPTIONS],
-        True,
+    enable_extended = entry.options.get(
+        CONF_ENABLE_EXTENDED_ENTITIES,
+        entry.data.get(CONF_ENABLE_EXTENDED_ENTITIES, DEFAULT_ENABLE_EXTENDED_ENTITIES),
     )
+    entities = [
+        StaggBinarySensor(coordinator, entry, desc)
+        for desc in BINARY_SENSOR_DESCRIPTIONS
+        if enable_extended or desc.key not in EXTENDED_BINARY_SENSOR_KEYS
+    ]
+    async_add_entities(entities, True)
 
 
 class StaggBinarySensor(CoordinatorEntity[StaggLinkCoordinator], BinarySensorEntity):

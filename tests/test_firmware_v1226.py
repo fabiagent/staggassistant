@@ -530,6 +530,66 @@ ketl= ho 0 wd 0 nw 0 ipb 0 bf 0 tr 0
         self.assertEqual(num_sch._attr_native_unit_of_measurement, UnitOfTemperature.CELSIUS)
         self.assertEqual(num_sch._attr_device_class, NumberDeviceClass.TEMPERATURE)
 
+    # 12. Extended entities filtering and altitude-based boil temperature
+    async def test_extended_entities_filtering(self):
+        """Verify unreadable sensors are excluded by default and included when enable_extended_entities=True."""
+        from custom_components.staggassistant.binary_sensor import (
+            EXTENDED_BINARY_SENSOR_KEYS,
+            async_setup_entry as bsensor_setup,
+        )
+        from custom_components.staggassistant.sensor import (
+            EXTENDED_SENSOR_KEYS,
+            async_setup_entry as sensor_setup,
+        )
+
+        entry_default = MagicMock()
+        entry_default.entry_id = "test_entry"
+        entry_default.data = {"ip_address": "192.168.1.100", "name": "Kettle"}
+        entry_default.options = {}
+
+        self.mock_hass.data = {"staggassistant": {"test_entry": self.coordinator}}
+
+        # Default: extended entities disabled
+        sensors_default = []
+        await sensor_setup(self.mock_hass, entry_default, lambda ents, _: sensors_default.extend(ents))
+        sensor_keys_default = {s.entity_description.key for s in sensors_default}
+        self.assertTrue(EXTENDED_SENSOR_KEYS.isdisjoint(sensor_keys_default))
+        self.assertIn("current_temp", sensor_keys_default)
+        self.assertIn("target_temp", sensor_keys_default)
+        self.assertIn("state_mode", sensor_keys_default)
+
+        bsensors_default = []
+        await bsensor_setup(self.mock_hass, entry_default, lambda ents, _: bsensors_default.extend(ents))
+        bsensor_keys_default = {s.entity_description.key for s in bsensors_default}
+        self.assertTrue(EXTENDED_BINARY_SENSOR_KEYS.isdisjoint(bsensor_keys_default))
+        self.assertIn("is_docked", bsensor_keys_default)
+        self.assertIn("is_heating", bsensor_keys_default)
+
+        # Extended enabled: all entities included
+        entry_extended = MagicMock()
+        entry_extended.entry_id = "test_entry"
+        entry_extended.data = {"ip_address": "192.168.1.100", "name": "Kettle"}
+        entry_extended.options = {"enable_extended_entities": True}
+
+        sensors_ext = []
+        await sensor_setup(self.mock_hass, entry_extended, lambda ents, _: sensors_ext.extend(ents))
+        sensor_keys_ext = {s.entity_description.key for s in sensors_ext}
+        self.assertTrue(EXTENDED_SENSOR_KEYS.issubset(sensor_keys_ext))
+
+        bsensors_ext = []
+        await bsensor_setup(self.mock_hass, entry_extended, lambda ents, _: bsensors_ext.extend(ents))
+        bsensor_keys_ext = {s.entity_description.key for s in bsensors_ext}
+        self.assertTrue(EXTENDED_BINARY_SENSOR_KEYS.issubset(bsensor_keys_ext))
+
+    async def test_boil_temperature_calculated_from_altitude(self):
+        """Test boil_temp is estimated from altitude if kettle returns no boil_temp."""
+        self.coordinator._cached_settings["altitude_meters"] = 285
+        self._mock_temp_and_settings('{"state":"S_Off","temp":40.0,"temp_set":90.0}')
+
+        data = await self.coordinator._async_update_data()
+        # 100 - (285 / 285) = 99.0 C
+        self.assertEqual(data["boil_temp"], 99.0)
+
 
 if __name__ == "__main__":
     unittest.main()

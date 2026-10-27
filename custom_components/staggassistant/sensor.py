@@ -11,10 +11,12 @@ from homeassistant.const import UnitOfTemperature
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import DOMAIN
+from .const import CONF_ENABLE_EXTENDED_ENTITIES, DEFAULT_ENABLE_EXTENDED_ENTITIES, DOMAIN
 from .coordinator import StaggLinkCoordinator
 
 _LOGGER = logging.getLogger(__name__)
+
+EXTENDED_SENSOR_KEYS = {"boil_temp", "schedule_time", "schedule_temperature"}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -47,6 +49,7 @@ SENSOR_DESCRIPTIONS: tuple[StaggSensorDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         icon="mdi:water-boiler",
+        entity_registry_enabled_default=False,
     ),
     StaggSensorDescription(
         key="state_mode",
@@ -62,6 +65,7 @@ SENSOR_DESCRIPTIONS: tuple[StaggSensorDescription, ...] = (
         key="schedule_time",
         name="Schedule Time",
         icon="mdi:calendar-clock-outline",
+        entity_registry_enabled_default=False,
     ),
     StaggSensorDescription(
         key="schedule_temperature",
@@ -69,6 +73,7 @@ SENSOR_DESCRIPTIONS: tuple[StaggSensorDescription, ...] = (
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
         icon="mdi:thermometer-auto",
+        entity_registry_enabled_default=False,
     ),
 )
 
@@ -76,10 +81,16 @@ SENSOR_DESCRIPTIONS: tuple[StaggSensorDescription, ...] = (
 async def async_setup_entry(hass, entry, async_add_entities):
     """Set up StaggLink sensors from a config entry."""
     coordinator: StaggLinkCoordinator = hass.data[DOMAIN][entry.entry_id]
-    async_add_entities(
-        [StaggSensor(coordinator, entry, desc) for desc in SENSOR_DESCRIPTIONS],
-        True,
+    enable_extended = entry.options.get(
+        CONF_ENABLE_EXTENDED_ENTITIES,
+        entry.data.get(CONF_ENABLE_EXTENDED_ENTITIES, DEFAULT_ENABLE_EXTENDED_ENTITIES),
     )
+    entities = [
+        StaggSensor(coordinator, entry, desc)
+        for desc in SENSOR_DESCRIPTIONS
+        if enable_extended or desc.key not in EXTENDED_SENSOR_KEYS
+    ]
+    async_add_entities(entities, True)
 
 
 class StaggSensor(CoordinatorEntity[StaggLinkCoordinator], SensorEntity):

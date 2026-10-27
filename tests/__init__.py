@@ -93,10 +93,40 @@ if "homeassistant" not in sys.modules:
     sys.modules["homeassistant.components.climate"] = ha_climate
     sys.modules["homeassistant.components.climate.const"] = MagicMock()
 
+    from dataclasses import dataclass
+
+    @dataclass(frozen=True, kw_only=True)
+    class MockSensorEntityDescription:
+        key: str = ""
+        name: str = ""
+        device_class: any = None
+        state_class: any = None
+        native_unit_of_measurement: any = None
+        icon: str | None = None
+        entity_registry_enabled_default: bool = True
+
+    @dataclass(frozen=True, kw_only=True)
+    class MockBinarySensorEntityDescription:
+        key: str = ""
+        name: str = ""
+        device_class: any = None
+        icon: str | None = None
+        entity_registry_enabled_default: bool = True
+
+    class MockBinarySensorEntity:
+        pass
+
+    class MockSensorEntity:
+        pass
+
     ha_sensor = MagicMock()
+    ha_sensor.SensorEntityDescription = MockSensorEntityDescription
+    ha_sensor.SensorEntity = MockSensorEntity
     sys.modules["homeassistant.components.sensor"] = ha_sensor
 
     ha_bsensor = MagicMock()
+    ha_bsensor.BinarySensorEntityDescription = MockBinarySensorEntityDescription
+    ha_bsensor.BinarySensorEntity = MockBinarySensorEntity
     sys.modules["homeassistant.components.binary_sensor"] = ha_bsensor
 
     ha_number = MagicMock()

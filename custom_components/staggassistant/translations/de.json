@@ -23,9 +23,10 @@
     "step": {
       "init": {
         "title": "StaggAssistant Optionen",
-        "description": "Einstellungen der Integration anpassen.",
+        "description": "Einstellungen der Integration anpassen.\n\n⚠️ **Hinweis zu erweiterten Entitäten:** Ab Firmware 1.2.26 blockiert Fellow das Auslesen von Geräteeinstellungen über WLAN. Erweiterte Schalter, Regler und Sensoren (Hold-Dauer, Chime-Lautstärke, Siedepunkt, Zeitplan, Höhenmeter) basieren auf lokalem Caching und Schätzungen und werden standardmäßig ausgeblendet, um 'Unbekannt'-Zustände und Desynchronisation zu vermeiden.",
         "data": {
-          "scan_interval": "Update-Intervall (Sekunden)"
+          "scan_interval": "Update-Intervall (Sekunden)",
+          "enable_extended_entities": "Erweiterte Einstellungen & Sensoren aktivieren (Experten)"
         }
       }
     }
