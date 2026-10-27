@@ -31,20 +31,41 @@ class StaggAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
             self._abort_if_unique_id_configured()
 
             session = async_get_clientsession(self.hass)
-            url = f"http://{ip}/cli"
+            connected = False
             try:
-                async with asyncio.timeout(5):
-                    async with session.get(url, params={"cmd": "state"}) as response:
-                        if response.status == 200:
-                            text = await response.text()
-                            if "mode=" in text or "tempr=" in text:
-                                return self.async_create_entry(
-                                    title=user_input.get(CONF_NAME, "Stagg Kettle"),
-                                    data=user_input,
-                                )
-                            errors["base"] = "invalid_auth"
-                        else:
-                            errors["base"] = "cannot_connect"
+                # 1. Try modern /temp JSON endpoint (Firmware 1.2.26+)
+                temp_url = f"http://{ip}/temp"
+                try:
+                    async with asyncio.timeout(5):
+                        async with session.get(temp_url) as response:
+                            if response.status == 200:
+                                text = await response.text()
+                                if "state" in text or "temp" in text:
+                                    connected = True
+                except (asyncio.TimeoutError, Exception):
+                    connected = False
+
+                # 2. Fall back to /cli?cmd=state (Legacy firmware)
+                if not connected:
+                    cli_url = f"http://{ip}/cli?cmd=state"
+                    async with asyncio.timeout(5):
+                        async with session.get(cli_url) as response:
+                            if response.status == 200:
+                                text = await response.text()
+                                if "mode=" in text or "tempr=" in text:
+                                    connected = True
+                                else:
+                                    errors["base"] = "invalid_auth"
+                            else:
+                                errors["base"] = "cannot_connect"
+
+                if connected:
+                    return self.async_create_entry(
+                        title=user_input.get(CONF_NAME, "Stagg Kettle"),
+                        data=user_input,
+                    )
+                elif "base" not in errors:
+                    errors["base"] = "cannot_connect"
             except (asyncio.TimeoutError, Exception):
                 errors["base"] = "cannot_connect"
 

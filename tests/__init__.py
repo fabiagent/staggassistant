@@ -78,7 +78,15 @@ if "homeassistant" not in sys.modules:
         CELSIUS = "°C"
         FAHRENHEIT = "°F"
 
+    class MockUnitOfTime:
+        MINUTES = "min"
+
+    class MockUnitOfLength:
+        METERS = "m"
+
     ha_const.UnitOfTemperature = MockUnitOfTemperature
+    ha_const.UnitOfTime = MockUnitOfTime
+    ha_const.UnitOfLength = MockUnitOfLength
     sys.modules["homeassistant.const"] = ha_const
 
     ha_climate = MagicMock()

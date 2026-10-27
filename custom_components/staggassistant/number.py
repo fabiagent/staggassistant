@@ -1,7 +1,7 @@
 """Support for Fellow Stagg EKG Pro numbers."""
 import logging
-from homeassistant.components.number import NumberEntity
-from homeassistant.const import UnitOfTemperature
+from homeassistant.components.number import NumberDeviceClass, NumberEntity
+from homeassistant.const import UnitOfLength, UnitOfTemperature, UnitOfTime
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -24,7 +24,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             0,
             60,
             1,
-            "min",
+            UnitOfTime.MINUTES,
             "mdi:timer-sand",
             lambda val: f"setsetting hold {int(val)}",
         ),
@@ -36,7 +36,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             0,
             3000,
             1,
-            "m",
+            UnitOfLength.METERS,
             "mdi:elevation-rise",
             lambda val: f"setaltitudem {int(val)}",
         ),
@@ -63,6 +63,7 @@ async def async_setup_entry(hass, entry, async_add_entities):
             UnitOfTemperature.CELSIUS,
             "mdi:thermometer-auto",
             lambda val: f"setsetting schtempr {round(val * 1.8 + 32)}",
+            device_class=NumberDeviceClass.TEMPERATURE,
         ),
     ]
 
@@ -84,6 +85,7 @@ class StaggNumber(CoordinatorEntity[StaggLinkCoordinator], NumberEntity):
         unit_of_measurement: str | None,
         icon: str,
         command_generator,
+        device_class: NumberDeviceClass | None = None,
     ):
         """Initialize the number entity."""
         super().__init__(coordinator)
@@ -100,6 +102,7 @@ class StaggNumber(CoordinatorEntity[StaggLinkCoordinator], NumberEntity):
         self._attr_native_unit_of_measurement = unit_of_measurement
         self._attr_icon = icon
         self._command_generator = command_generator
+        self._attr_device_class = device_class
 
         self._attr_device_info = DeviceInfo(
             identifiers={(DOMAIN, device_id)},

@@ -125,7 +125,7 @@ class StaggKettleClimate(CoordinatorEntity[StaggLinkCoordinator], ClimateEntity)
             fahrenheit = round(clamped_c * 1.8 + 32)
 
             # 1. Send temperature target
-            await self.coordinator.async_send_command(f"setsetting settempr {fahrenheit}")
+            await self.coordinator.async_send_command(f"setsettingd settempr {fahrenheit}")
 
             # 2. Ensure kettle transitions to heating mode
             await self.coordinator.async_send_command("ss S_Heat")

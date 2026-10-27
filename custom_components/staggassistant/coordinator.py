@@ -1,6 +1,8 @@
 """DataUpdateCoordinator for Fellow Stagg EKG Pro integration."""
 import asyncio
+import json
 import logging
+import math
 import re
 from datetime import timedelta
 import aiohttp
@@ -28,6 +30,38 @@ BLOCKED_COMMANDS = {
     "adcsamples",
 }
 
+DEFAULT_SETTINGS = {
+    "hold_time_minutes": 30,
+    "hold_enabled": 1,
+    "pre_boil_enabled": 0,
+    "chime_enabled": 0,
+    "chime_volume": 0,
+    "altitude_meters": 0,
+    "language": 0,
+    "units": "C",
+    "clock_mode": 0,
+    "clock_time": None,
+    "schedule_enabled": 0,
+    "schedule_mode": "off",
+    "schedule_time": None,
+    "schedule_temperature": None,
+}
+
+
+def _parse_float(value) -> float | None:
+    """Parse float safely, handling None, NaN, -nan, +nan, and negative disconnected readings."""
+    if value is None:
+        return None
+    if isinstance(value, str) and "nan" in value.lower():
+        return None
+    try:
+        val = float(value)
+        if math.isnan(val) or val < -10:
+            return None
+        return val
+    except (ValueError, TypeError):
+        return None
+
 
 class StaggLinkCoordinator(DataUpdateCoordinator):
     """Central instance to fetch data from and send commands to the kettle CLI API."""
@@ -42,25 +76,95 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
         )
         self.ip = ip
         self.session = async_get_clientsession(hass)
+        self._lock = asyncio.Lock()
+        self._cached_settings: dict = dict(DEFAULT_SETTINGS)
+        self._prtsettings_supported: bool | None = None
+
+    def _optimistically_update_settings(self, clean_cmd: str) -> None:
+        """Update cached settings optimistically based on sent CLI commands."""
+        cmd_lower = clean_cmd.lower()
+        parts = clean_cmd.split()
+
+        try:
+            if cmd_lower.startswith("setsetting hold ") and len(parts) >= 3:
+                val = int(parts[2])
+                self._cached_settings["hold_time_minutes"] = val
+                self._cached_settings["hold_enabled"] = 1 if val > 0 else 0
+            elif cmd_lower.startswith("setsetting boil ") and len(parts) >= 3:
+                self._cached_settings["pre_boil_enabled"] = int(parts[2])
+            elif cmd_lower.startswith("setsetting chime ") and len(parts) >= 3:
+                val = int(parts[2])
+                self._cached_settings["chime_volume"] = val
+                self._cached_settings["chime_enabled"] = 1 if val > 0 else 0
+            elif cmd_lower.startswith("setsetting language ") and len(parts) >= 3:
+                self._cached_settings["language"] = int(parts[2])
+            elif cmd_lower.startswith("setsetting clockmode ") and len(parts) >= 3:
+                self._cached_settings["clock_mode"] = int(parts[2])
+            elif cmd_lower == "setdigital":
+                self._cached_settings["clock_mode"] = 1
+            elif cmd_lower == "setanalog":
+                self._cached_settings["clock_mode"] = 2
+            elif cmd_lower == "setunitsc":
+                self._cached_settings["units"] = "C"
+            elif cmd_lower == "setunitsf":
+                self._cached_settings["units"] = "F"
+            elif cmd_lower.startswith("setaltitudem ") and len(parts) >= 2:
+                self._cached_settings["altitude_meters"] = int(parts[1])
+            elif cmd_lower.startswith("setsetting schedon ") and len(parts) >= 3:
+                val = int(parts[2])
+                self._cached_settings["schedule_enabled"] = val
+                if val == 0:
+                    self._cached_settings["schedule_mode"] = "off"
+                elif self._cached_settings.get("schedule_mode") == "off":
+                    self._cached_settings["schedule_mode"] = "once"
+            elif cmd_lower.startswith("setsetting repeat_sched ") and len(parts) >= 3:
+                val = int(parts[2])
+                if self._cached_settings.get("schedule_enabled") != 0:
+                    self._cached_settings["schedule_mode"] = "repeat" if val == 1 else "once"
+            elif (
+                cmd_lower.startswith("setsetting schtempr ")
+                or cmd_lower.startswith("setsettingd schtempr ")
+            ) and len(parts) >= 3:
+                # schtempr parameter is in Fahrenheit
+                fahr = float(parts[2])
+                self._cached_settings["schedule_temperature"] = round((fahr - 32) / 1.8, 1)
+            elif cmd_lower.startswith("setsetting schtime ") and len(parts) >= 3:
+                self._cached_settings["schedule_time"] = parts[2]
+            elif cmd_lower.startswith("setclock ") and len(parts) >= 3:
+                h = int(parts[1])
+                m = int(parts[2])
+                self._cached_settings["clock_time"] = f"{h:02d}:{m:02d}"
+        except Exception as err:
+            _LOGGER.debug("Could not parse optimistic settings from '%s': %s", clean_cmd, err)
 
     async def async_send_command(self, cmd: str) -> str:
         """Send a CLI command safely to the kettle.
 
-        Guards against raw GPIO heater activation or destructive commands.
+        Guards against command injection, raw GPIO heater activation, or destructive commands.
         """
-        clean_cmd = cmd.strip()
-        first_word = clean_cmd.split()[0].lower() if clean_cmd else ""
+        clean_cmd = cmd.strip() if cmd else ""
+        if not clean_cmd:
+            _LOGGER.error("Rejected empty command.")
+            raise HomeAssistantError("Empty command is not allowed.")
 
-        if first_word in BLOCKED_COMMANDS or clean_cmd.lower() == "ss":
+        if any(c in clean_cmd for c in ("\n", "\r", ";", "\x00")) or any(ord(c) < 32 for c in clean_cmd):
+            _LOGGER.error("Blocked command containing forbidden characters: %r", clean_cmd)
+            raise HomeAssistantError("Command contains forbidden characters.")
+
+        tokens = [t.lower() for t in clean_cmd.split()]
+        if any(t in BLOCKED_COMMANDS for t in tokens) or clean_cmd.lower() == "ss":
             _LOGGER.error("Blocked potentially dangerous command: '%s'", clean_cmd)
             raise HomeAssistantError(f"Command '{clean_cmd}' is blocked for safety.")
 
-        url = f"http://{self.ip}/cli"
+        encoded_cmd = "+".join(clean_cmd.split())
+        url = f"http://{self.ip}/cli?cmd={encoded_cmd}"
+
         try:
-            async with asyncio.timeout(10):
-                async with self.session.get(url, params={"cmd": clean_cmd}) as response:
-                    response.raise_for_status()
-                    return await response.text()
+            async with self._lock:
+                async with asyncio.timeout(10):
+                    async with self.session.get(url) as response:
+                        response.raise_for_status()
+                        result = await response.text()
         except asyncio.TimeoutError as err:
             _LOGGER.error("Timeout sending command '%s' to %s", clean_cmd, self.ip)
             raise HomeAssistantError(f"Timeout communicating with Stagg kettle at {self.ip}") from err
@@ -68,129 +172,222 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
             _LOGGER.error("Connection error sending command '%s' to %s: %s", clean_cmd, self.ip, err)
             raise HomeAssistantError(f"Error communicating with Stagg kettle: {err}") from err
 
-    async def _async_update_data(self):
-        """Fetch data from the kettle via HTTP CLI commands."""
-        state_url = f"http://{self.ip}/cli"
+        # Optimistically update cached settings based on sent command
+        self._optimistically_update_settings(clean_cmd)
 
+        return result
+
+    async def _async_read_temp_json(self) -> dict | None:
+        """Attempt to read and parse the /temp JSON endpoint (Firmware 1.2.26+)."""
+        url = f"http://{self.ip}/temp"
         try:
-            async with asyncio.timeout(15):
-                # 1. Fetch current device state
-                async with self.session.get(state_url, params={"cmd": "state"}) as response:
-                    response.raise_for_status()
-                    state_text = await response.text()
+            async with self.session.get(url) as response:
+                if response.status != 200:
+                    return None
+                raw_text = await response.text()
+                # Sanitize unquoted nan / -nan / +nan before json.loads
+                sanitized = re.sub(r':\s*[-+]?nan\b', ': null', raw_text, flags=re.IGNORECASE)
+                data = json.loads(sanitized)
+                if isinstance(data, dict) and ("state" in data or ("temp" in data and "temp_set" in data)):
+                    return data
+        except Exception as err:
+            _LOGGER.debug("Failed to read /temp JSON endpoint: %s", err)
+            return None
+        return None
 
-                # 2. Fetch system settings dump
-                async with self.session.get(state_url, params={"cmd": "prtsettings"}) as response_settings:
-                    response_settings.raise_for_status()
-                    settings_text = await response_settings.text()
+    async def _async_update_data(self):
+        """Fetch data from the kettle via HTTP endpoints."""
+        try:
+            async with self._lock:
+                async with asyncio.timeout(20):
+                    temp_data = await self._async_read_temp_json()
 
-                # Parse temperature values (negative lookahead avoids matching temprT / temprB as tempr)
-                temp_match = re.search(r'\btempr(?![TB])\s*=\s*(-?[0-9.]+|nan)', state_text)
-                target_match = re.search(r'\btemprT\s*=\s*(-?[0-9.]+|nan)', state_text)
-                boil_match = re.search(r'\btemprB\s*=\s*(-?[0-9.]+|nan)', state_text)
-                mode_match = re.search(r'\bmode\s*=\s*([a-zA-Z0-9_+]+)', state_text)
+                    current_temp = None
+                    target_temp = None
+                    mode = "S_Off"
+                    boil_temp = None
+                    clock_time = None
+                    no_water = False
+                    target_reached = False
+                    in_pre_boil = False
+                    hold_flag = False
 
-                if not temp_match or not target_match or not mode_match:
-                    raise UpdateFailed(f"Parsing error. Incomplete response: {state_text}")
+                    if temp_data is not None:
+                        current_temp = _parse_float(temp_data.get("temp"))
+                        target_temp = _parse_float(temp_data.get("temp_set"))
+                        mode = str(temp_data.get("state", "S_Off"))
+                        boil_temp = _parse_float(temp_data.get("boil_temp") or temp_data.get("temprB"))
+                        clock_time = temp_data.get("clock")
+                    else:
+                        # Fallback to GET http://{self.ip}/cli?cmd=state
+                        state_url = f"http://{self.ip}/cli?cmd=state"
+                        async with self.session.get(state_url) as response:
+                            response.raise_for_status()
+                            state_text = await response.text()
 
-                def parse_float(value):
-                    if value is None or value == 'nan':
-                        return None
-                    try:
-                        return float(value)
-                    except ValueError:
-                        return None
+                        temp_match = re.search(r'(?i)\btempr(?![TB])\s*=\s*(-?[0-9.]+|[-+]?nan)', state_text)
+                        target_match = re.search(r'(?i)\btemprT\s*=\s*(-?[0-9.]+|[-+]?nan)', state_text)
+                        boil_match = re.search(r'(?i)\btemprB\s*=\s*(-?[0-9.]+|[-+]?nan)', state_text)
+                        mode_match = re.search(r'\bmode\s*=\s*([a-zA-Z0-9_+-]+)', state_text)
 
-                def get_setting_value(name, default=None):
-                    match = re.search(rf'\b{name}\s*[:=]\s*([a-zA-Z0-9_.-]+)', settings_text, re.IGNORECASE)
-                    if match:
-                        val = match.group(1).strip()
+                        if not temp_match or not target_match or not mode_match:
+                            if '<form action="cli"' in state_text:
+                                raise UpdateFailed(
+                                    "Kettle CLI returned only HTML form without state data, and /temp JSON endpoint failed."
+                                )
+                            raise UpdateFailed(f"Parsing error. Incomplete response: {state_text}")
+
+                        current_temp = _parse_float(temp_match.group(1))
+                        target_temp = _parse_float(target_match.group(1))
+                        boil_temp = _parse_float(boil_match.group(1)) if boil_match else None
+                        mode = mode_match.group(1)
+
+                        clock_match = re.search(r'\bclock\s*=\s*([0-9]+:[0-9]+)', state_text)
+                        if clock_match:
+                            try:
+                                h, m = clock_match.group(1).split(":")
+                                clock_time = f"{int(h):02d}:{int(m):02d}"
+                            except Exception:
+                                clock_time = clock_match.group(1)
+
+                        ketl_match = re.search(r'\bketl\s*=\s*(.*)$', state_text, re.MULTILINE)
+                        if ketl_match:
+                            flags = dict(re.findall(r'([a-zA-Z]+)\s+([0-9]+)', ketl_match.group(1)))
+                            no_water = flags.get("nw") == "1"
+                            target_reached = flags.get("tr") == "1"
+                            in_pre_boil = flags.get("ipb") == "1"
+                            hold_flag = flags.get("ho") == "1"
+
+                    # Fetch prtsettings (skip on subsequent polls if Firmware 1.2.26+ silenced CLI output)
+                    settings_text = ""
+                    if self._prtsettings_supported is not False:
+                        settings_url = f"http://{self.ip}/cli?cmd=prtsettings"
                         try:
-                            if '.' in val:
-                                return float(val)
-                            return int(val)
-                        except ValueError:
-                            return val
-                    return default
+                            async with self.session.get(settings_url) as resp_settings:
+                                resp_settings.raise_for_status()
+                                settings_text = await resp_settings.text()
+                        except Exception as err:
+                            _LOGGER.debug("Could not fetch prtsettings: %s", err)
+                            settings_text = ""
 
-                def get_time_value(name, default=None):
-                    """Parse HH:MM values."""
-                    match = re.search(rf'\b{name}\s*=\s*([0-9]+:[0-9]+)', settings_text, re.IGNORECASE)
-                    return match.group(1) if match else default
+                    # Check if settings_text contains actual settings data
+                    has_settings = "st:" in settings_text or re.search(r'\bhold\s*[:=]', settings_text) is not None
+                    if has_settings:
+                        self._prtsettings_supported = True
+                    elif temp_data is not None and '<form action="cli"' in settings_text:
+                        self._prtsettings_supported = False
 
-                # Parse clock time directly from state_text (eliminates 1 HTTP call per poll)
-                clock_time = None
-                clock_match = re.search(r'\bclock\s*=\s*([0-9]+:[0-9]+)', state_text)
-                if clock_match:
-                    try:
-                        h, m = clock_match.group(1).split(":")
-                        clock_time = f"{int(h):02d}:{int(m):02d}"
-                    except Exception:
-                        clock_time = clock_match.group(1)
+                    if has_settings:
+                        def get_setting_value(name, default=None):
+                            match = re.search(rf'\b{name}\s*[:=]\s*([a-zA-Z0-9_.-]+)', settings_text, re.IGNORECASE)
+                            if match:
+                                val = match.group(1).strip()
+                                try:
+                                    if '.' in val:
+                                        return float(val)
+                                    return int(val)
+                                except ValueError:
+                                    return val
+                            return default
 
-                # Parse ketl= line flags (e.g. "ketl= ho 0 wd 0 nw 0 ipb 0 bf 0 tr 0")
-                ketl_match = re.search(r'\bketl\s*=\s*(.*)$', state_text, re.MULTILINE)
-                flags = {}
-                if ketl_match:
-                    flags = dict(re.findall(r'([a-zA-Z]+)\s+([0-9]+)', ketl_match.group(1)))
+                        def get_time_value(name, default=None):
+                            match = re.search(rf'\b{name}\s*=\s*([0-9]+:[0-9]+)', settings_text, re.IGNORECASE)
+                            return match.group(1) if match else default
 
-                no_water = flags.get("nw") == "1"
-                target_reached = flags.get("tr") == "1"
-                in_pre_boil = flags.get("ipb") == "1"
-                hold_flag = flags.get("ho") == "1"
+                        sch_tempr_c = None
+                        sch_match = re.search(r'schtempr\s*=\s*.*?\s*(-?[0-9.]+)\s*C', settings_text)
+                        if sch_match:
+                            sch_tempr_c = _parse_float(sch_match.group(1))
 
-                current_temp = parse_float(temp_match.group(1))
-                target_temp = parse_float(target_match.group(1))
-                boil_temp = parse_float(boil_match.group(1)) if boil_match else None
+                        schedon = get_setting_value("schedon", self._cached_settings.get("schedule_enabled", 0))
+                        repeat_sched = get_setting_value("Repeat_sched", 0)
+                        if schedon == 0:
+                            schedule_mode = "off"
+                        elif repeat_sched:
+                            schedule_mode = "repeat"
+                        else:
+                            schedule_mode = "once"
 
-                # When kettle is off the base, tempr reports 'nan'
-                is_docked = current_temp is not None
+                        hold_val = get_setting_value("hold", self._cached_settings.get("hold_time_minutes", 30))
+                        pre_boil_val = get_setting_value("boil", self._cached_settings.get("pre_boil_enabled", 0))
+                        chime_val = get_setting_value("chime", self._cached_settings.get("chime_volume", 0))
+                        altitude_val = get_setting_value("altitude", self._cached_settings.get("altitude_meters", 0))
+                        language_val = get_setting_value("language", self._cached_settings.get("language", 0))
+                        units_raw = get_setting_value("units", 1 if self._cached_settings.get("units") == "C" else 0)
+                        units_val = "C" if units_raw == 1 else "F"
+                        clock_mode_val = get_setting_value("clockmode", self._cached_settings.get("clock_mode", 0))
+                        sch_time_val = get_time_value("schtime", self._cached_settings.get("schedule_time"))
 
-                # Schedule temperature: "schtempr=N F (X C ...)" or "schtempr=N C (X C ...)"
-                sch_tempr_c = None
-                sch_match = re.search(r'schtempr\s*=\s*.*?\s*(-?[0-9.]+)\s*C', settings_text)
-                if sch_match:
-                    try:
-                        sch_tempr_c = float(sch_match.group(1))
-                    except ValueError:
-                        pass
+                        # Safe type checks
+                        hold_enabled_val = 1 if isinstance(hold_val, (int, float)) and hold_val > 0 else 0
+                        chime_enabled_val = 1 if isinstance(chime_val, (int, float)) and chime_val > 0 else 0
+                        pre_boil_enabled_val = 1 if pre_boil_val in (1, "1", True) else 0
 
-                schedon = get_setting_value("schedon", 0)
-                repeat_sched = get_setting_value("Repeat_sched", 0)
-                if schedon == 0:
-                    schedule_mode = "off"
-                    sch_tempr_c = None  # Hide temperature if schedule is off
-                elif repeat_sched:
-                    schedule_mode = "repeat"
-                else:
-                    schedule_mode = "once"
+                        self._cached_settings["hold_time_minutes"] = hold_val
+                        self._cached_settings["hold_enabled"] = hold_enabled_val
+                        self._cached_settings["pre_boil_enabled"] = pre_boil_enabled_val
+                        self._cached_settings["chime_enabled"] = chime_enabled_val
+                        self._cached_settings["chime_volume"] = chime_val
+                        self._cached_settings["altitude_meters"] = altitude_val
+                        self._cached_settings["language"] = language_val
+                        self._cached_settings["units"] = units_val
+                        self._cached_settings["clock_mode"] = clock_mode_val
+                        self._cached_settings["schedule_enabled"] = schedon
+                        self._cached_settings["schedule_mode"] = schedule_mode
+                        if sch_time_val is not None:
+                            self._cached_settings["schedule_time"] = sch_time_val
+                        if sch_tempr_c is not None:
+                            self._cached_settings["schedule_temperature"] = sch_tempr_c
 
-                return {
-                    "temp": current_temp,
-                    "target": target_temp,
-                    "boil_temp": boil_temp,
-                    "mode": mode_match.group(1),
-                    "is_docked": is_docked,
-                    "no_water": no_water,
-                    "target_reached": target_reached,
-                    "in_pre_boil": in_pre_boil,
-                    "hold_flag": hold_flag,
-                    "hold_time_minutes": get_setting_value("hold", 30),
-                    "hold_enabled": 1 if get_setting_value("hold", 0) > 0 else 0,
-                    "pre_boil_enabled": get_setting_value("boil", 0),
-                    "chime_enabled": 1 if get_setting_value("chime", 0) > 0 else 0,
-                    "chime_volume": get_setting_value("chime", 0),
-                    "altitude_meters": get_setting_value("altitude", 0),
-                    "language": get_setting_value("language", 0),
-                    "units": "C" if get_setting_value("units", 1) == 1 else "F",
-                    "clock_mode": get_setting_value("clockmode", 0),
-                    "clock_time": clock_time,
-                    "schedule_enabled": schedon,
-                    "schedule_mode": schedule_mode,
-                    "schedule_time": get_time_value("schtime"),
-                    "schedule_temperature": sch_tempr_c,
-                }
+                    if clock_time is not None:
+                        self._cached_settings["clock_time"] = clock_time
 
+                    is_docked = current_temp is not None
+
+                    # If using /temp or legacy state had no ketl flags, infer flags
+                    if temp_data is not None:
+                        hold_flag = mode.startswith("S_Hold")
+                        target_reached = bool(
+                            is_docked
+                            and target_temp is not None
+                            and mode != "S_Off"
+                            and (current_temp >= target_temp - 0.5 or mode.startswith("S_Hold"))
+                        )
+                        in_pre_boil = (mode == "S_PreBoil")
+
+                    # Safe type checks for returned settings
+                    hold_val = self._cached_settings.get("hold_time_minutes", 30)
+                    hold_enabled = 1 if isinstance(hold_val, (int, float)) and hold_val > 0 else 0
+                    chime_val = self._cached_settings.get("chime_volume", 0)
+                    chime_enabled = 1 if isinstance(chime_val, (int, float)) and chime_val > 0 else 0
+                    pre_boil_val = self._cached_settings.get("pre_boil_enabled", 0)
+                    pre_boil_enabled = 1 if pre_boil_val in (1, "1", True) else 0
+
+                    return {
+                        "temp": current_temp,
+                        "target": target_temp,
+                        "boil_temp": boil_temp,
+                        "mode": mode,
+                        "is_docked": is_docked,
+                        "no_water": no_water,
+                        "target_reached": target_reached,
+                        "in_pre_boil": in_pre_boil,
+                        "hold_flag": hold_flag,
+                        "hold_time_minutes": hold_val,
+                        "hold_enabled": hold_enabled,
+                        "pre_boil_enabled": pre_boil_enabled,
+                        "chime_enabled": chime_enabled,
+                        "chime_volume": chime_val,
+                        "altitude_meters": self._cached_settings.get("altitude_meters", 0),
+                        "language": self._cached_settings.get("language", 0),
+                        "units": self._cached_settings.get("units", "C"),
+                        "clock_mode": self._cached_settings.get("clock_mode", 0),
+                        "clock_time": self._cached_settings.get("clock_time"),
+                        "schedule_enabled": self._cached_settings.get("schedule_enabled", 0),
+                        "schedule_mode": self._cached_settings.get("schedule_mode", "off"),
+                        "schedule_time": self._cached_settings.get("schedule_time"),
+                        "schedule_temperature": self._cached_settings.get("schedule_temperature"),
+                    }
         except UpdateFailed:
             raise
         except Exception as err:
