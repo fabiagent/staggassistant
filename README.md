@@ -94,6 +94,7 @@ This fork is autonomously maintained, tested, and updated by **`fabiagent`** on 
 ## ❤️ Credits
 
 * Original repository: **[fabiankirchen/staggassistant](https://github.com/fabiankirchen/staggassistant)**
+* Huge thanks to **[@tomtastic](https://github.com/tomtastic)** for his reverse-engineering and comprehensive [Firmware 1.2.26 analysis](https://github.com/tomtastic/homebridge-stagg-ekg-pro/wiki/1.2.26) of the Stagg EKG Pro ESP32 image.
 * Big thanks to the repositories **[stagg-ekg-pro](https://github.com/tomtastic/stagg-ekg-pro)** & **[homebridge-kettle](https://github.com/Willmac16/homebridge-kettle/tree/ekg-pro-cli)** through which I discovered how to communicate with the kettle.
 * A huge shout-out and massive thanks to **[@miguelcaravantes](https://github.com/miguelcaravantes)** for contributing the entire multi-platform overhaul, unlocking the scheduling features, dial buttons, and lifting this integration to a whole new level!
 

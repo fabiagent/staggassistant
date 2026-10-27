@@ -63,7 +63,8 @@ class StaggKettleClimate(CoordinatorEntity[StaggLinkCoordinator], ClimateEntity)
         """Return current HVAC mode."""
         if not self.coordinator.data:
             return HVACMode.OFF
-        return HVACMode.OFF if self.coordinator.data.get("mode") == "S_Off" else HVACMode.HEAT
+        mode = self.coordinator.data.get("mode")
+        return HVACMode.OFF if mode in ("S_Off", "S_Standby") else HVACMode.HEAT
 
     @property
     def hvac_action(self) -> HVACAction:
@@ -71,7 +72,7 @@ class StaggKettleClimate(CoordinatorEntity[StaggLinkCoordinator], ClimateEntity)
         if not self.coordinator.data:
             return HVACAction.OFF
         mode = self.coordinator.data.get("mode", "S_Off")
-        if mode == "S_Off":
+        if mode in ("S_Off", "S_Standby"):
             return HVACAction.OFF
         if "High" in mode or "Heat" in mode or mode == "S_StartupToTempr":
             return HVACAction.HEATING

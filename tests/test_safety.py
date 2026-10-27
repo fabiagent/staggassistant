@@ -33,6 +33,11 @@ class TestKettleSafety(unittest.IsolatedAsyncioTestCase):
             "provreset",
             "eraseotherpart",
             "adcsamples",
+            "htest",
+            "hperiod",
+            "triactrace",
+            "lpsleep",
+            "lpnow",
             "ss",  # bare ss crashes/reboots kettle
             "  ss  ",
         ]

@@ -28,6 +28,11 @@ BLOCKED_COMMANDS = {
     "provreset",
     "eraseotherpart",
     "adcsamples",
+    "htest",
+    "hperiod",
+    "triactrace",
+    "lpsleep",
+    "lpnow",
 }
 
 DEFAULT_SETTINGS = {

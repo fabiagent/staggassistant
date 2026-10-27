@@ -45,10 +45,23 @@ if "voluptuous" not in sys.modules:
     sys.modules["voluptuous"] = MagicMock()
 
 import unittest
+from custom_components.staggassistant.binary_sensor import (
+    BINARY_SENSOR_DESCRIPTIONS,
+    StaggBinarySensor,
+)
 from custom_components.staggassistant.climate import StaggKettleClimate
 from custom_components.staggassistant.config_flow import StaggAssistantConfigFlow
-from custom_components.staggassistant.coordinator import StaggLinkCoordinator, _parse_float
+from custom_components.staggassistant.coordinator import (
+    BLOCKED_COMMANDS,
+    StaggLinkCoordinator,
+    _parse_float,
+)
 from custom_components.staggassistant.number import StaggNumber
+from custom_components.staggassistant.sensor import (
+    SENSOR_DESCRIPTIONS,
+    StaggSensor,
+)
+from homeassistant.components.climate.const import HVACAction, HVACMode
 from homeassistant.components.number import NumberDeviceClass
 from homeassistant.const import UnitOfLength, UnitOfTemperature, UnitOfTime
 from homeassistant.exceptions import HomeAssistantError
@@ -564,6 +577,7 @@ ketl= ho 0 wd 0 nw 0 ipb 0 bf 0 tr 0
         self.assertTrue(EXTENDED_BINARY_SENSOR_KEYS.isdisjoint(bsensor_keys_default))
         self.assertIn("is_docked", bsensor_keys_default)
         self.assertIn("is_heating", bsensor_keys_default)
+        self.assertIn("no_water", bsensor_keys_default)
 
         # Extended enabled: all entities included
         entry_extended = MagicMock()
@@ -589,6 +603,115 @@ ketl= ho 0 wd 0 nw 0 ipb 0 bf 0 tr 0
         data = await self.coordinator._async_update_data()
         # 100 - (285 / 285) = 99.0 C
         self.assertEqual(data["boil_temp"], 99.0)
+
+    # 13. Firmware 1.2.26 enhancements: Low water binary sensor
+    def test_firmware_1_2_26_low_water_binary_sensor(self):
+        """Test that S_NoWater mode and no_water flag trigger no_water binary sensor."""
+        entry = MagicMock()
+        entry.data = {"ip_address": "192.168.1.100", "name": "Kettle"}
+        no_water_desc = next(d for d in BINARY_SENSOR_DESCRIPTIONS if d.key == "no_water")
+        sensor = StaggBinarySensor(self.coordinator, entry, no_water_desc)
+
+        # 1. coordinator data is None
+        self.coordinator.data = None
+        self.assertIsNone(sensor.is_on)
+
+        # 2. S_NoWater state natively reported on Firmware 1.2.26+
+        self.coordinator.data = {"mode": "S_NoWater", "no_water": False}
+        self.assertTrue(sensor.is_on)
+
+        # 3. nw flag reported via legacy ketl flags
+        self.coordinator.data = {"mode": "S_Heat", "no_water": True}
+        self.assertTrue(sensor.is_on)
+
+        # 4. Normal heating with water
+        self.coordinator.data = {"mode": "S_Heat", "no_water": False}
+        self.assertFalse(sensor.is_on)
+
+        # 5. Normal idle off
+        self.coordinator.data = {"mode": "S_Off", "no_water": False}
+        self.assertFalse(sensor.is_on)
+
+    # 14. Firmware 1.2.26 enhancements: S_Standby HVAC mode and action
+    def test_firmware_1_2_26_standby_climate_mode_and_action(self):
+        """Test that S_Standby sets hvac_mode to HVACMode.OFF and hvac_action to HVACAction.OFF."""
+        entry = MagicMock()
+        entry.data = {"ip_address": "192.168.1.100", "name": "Kettle"}
+        climate = StaggKettleClimate(self.coordinator, entry)
+
+        # S_Standby
+        self.coordinator.data = {"mode": "S_Standby"}
+        self.assertEqual(climate.hvac_mode, HVACMode.OFF)
+        self.assertEqual(climate.hvac_action, HVACAction.OFF)
+
+        # S_Off
+        self.coordinator.data = {"mode": "S_Off"}
+        self.assertEqual(climate.hvac_mode, HVACMode.OFF)
+        self.assertEqual(climate.hvac_action, HVACAction.OFF)
+
+        # S_Heat
+        self.coordinator.data = {"mode": "S_Heat"}
+        self.assertEqual(climate.hvac_mode, HVACMode.HEAT)
+        self.assertEqual(climate.hvac_action, HVACAction.HEATING)
+
+        # S_Hold
+        self.coordinator.data = {"mode": "S_Hold"}
+        self.assertEqual(climate.hvac_mode, HVACMode.HEAT)
+        self.assertEqual(climate.hvac_action, HVACAction.IDLE)
+
+    # 15. Firmware 1.2.26 actuator and bench commands blocked
+    async def test_firmware_1_2_26_blocked_actuator_commands(self):
+        """Test that htest, hperiod, triactrace, lpsleep, lpnow are in BLOCKED_COMMANDS and rejected."""
+        new_blocked = ["htest", "hperiod", "triactrace", "lpsleep", "lpnow"]
+        for cmd in new_blocked:
+            self.assertIn(cmd, BLOCKED_COMMANDS)
+
+        test_commands = [
+            "htest",
+            "htest 1",
+            "hperiod",
+            "hperiod 100",
+            "triactrace",
+            "triactrace on",
+            "lpsleep",
+            "lpnow",
+        ]
+        for cmd in test_commands:
+            with self.subTest(cmd=cmd):
+                with self.assertRaises(HomeAssistantError):
+                    await self.coordinator.async_send_command(cmd)
+
+    # 16. State mode sensor formatting for S_NoWater and S_Standby
+    def test_firmware_1_2_26_state_mode_sensor_formatting(self):
+        """Test state_mode sensor formatting for S_NoWater, S_Standby, and other modes."""
+        entry = MagicMock()
+        entry.data = {"ip_address": "192.168.1.100", "name": "Kettle"}
+        state_mode_desc = next(d for d in SENSOR_DESCRIPTIONS if d.key == "state_mode")
+        sensor = StaggSensor(self.coordinator, entry, state_mode_desc)
+
+        # S_NoWater -> "Low Water Alert"
+        self.coordinator.data = {"mode": "S_NoWater"}
+        self.assertEqual(sensor.native_value, "Low Water Alert")
+
+        # S_Standby -> "Standby"
+        self.coordinator.data = {"mode": "S_Standby"}
+        self.assertEqual(sensor.native_value, "Standby")
+
+        # S_StartupToTempr -> "Heating to Target"
+        self.coordinator.data = {"mode": "S_StartupToTempr"}
+        self.assertEqual(sensor.native_value, "Heating to Target")
+
+        # S_Heat -> "Heat"
+        self.coordinator.data = {"mode": "S_Heat"}
+        self.assertEqual(sensor.native_value, "Heat")
+
+        # S_Hold_Indefinite -> "Hold Indefinite"
+        self.coordinator.data = {"mode": "S_Hold_Indefinite"}
+        self.assertEqual(sensor.native_value, "Hold Indefinite")
+
+        # None / missing mode
+        self.coordinator.data = {}
+        self.assertIsNone(sensor.native_value)
 
 
 if __name__ == "__main__":

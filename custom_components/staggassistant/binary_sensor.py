@@ -15,7 +15,7 @@ from .coordinator import StaggLinkCoordinator
 
 _LOGGER = logging.getLogger(__name__)
 
-EXTENDED_BINARY_SENSOR_KEYS = {"no_water", "in_pre_boil"}
+EXTENDED_BINARY_SENSOR_KEYS = {"in_pre_boil"}
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -38,7 +38,6 @@ BINARY_SENSOR_DESCRIPTIONS: tuple[StaggBinarySensorDescription, ...] = (
         name="Low Water Warning",
         device_class=BinarySensorDeviceClass.PROBLEM,
         icon="mdi:water-alert",
-        entity_registry_enabled_default=False,
     ),
     StaggBinarySensorDescription(
         key="target_reached",
@@ -113,7 +112,8 @@ class StaggBinarySensor(CoordinatorEntity[StaggLinkCoordinator], BinarySensorEnt
         if key == "is_docked":
             return bool(self.coordinator.data.get("is_docked"))
         if key == "no_water":
-            return bool(self.coordinator.data.get("no_water"))
+            mode = str(self.coordinator.data.get("mode", ""))
+            return bool(self.coordinator.data.get("no_water")) or mode == "S_NoWater"
         if key == "target_reached":
             return bool(self.coordinator.data.get("target_reached"))
         if key == "in_pre_boil":

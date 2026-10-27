@@ -134,6 +134,10 @@ class StaggSensor(CoordinatorEntity[StaggLinkCoordinator], SensorEntity):
             mode = self.coordinator.data.get("mode")
             if not mode:
                 return None
+            if mode == "S_NoWater":
+                return "Low Water Alert"
+            if mode == "S_Standby":
+                return "Standby"
             if mode == "S_StartupToTempr":
                 return "Heating to Target"
             if mode.startswith("S_"):
