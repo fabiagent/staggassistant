@@ -30,6 +30,7 @@ class StaggSensorDescription(SensorEntityDescription):
 SENSOR_DESCRIPTIONS: tuple[StaggSensorDescription, ...] = (
     StaggSensorDescription(
         key="current_temp",
+        translation_key="current_temp",
         name="Current Temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         state_class=SensorStateClass.MEASUREMENT,
@@ -38,6 +39,7 @@ SENSOR_DESCRIPTIONS: tuple[StaggSensorDescription, ...] = (
     ),
     StaggSensorDescription(
         key="target_temp",
+        translation_key="target_temp",
         name="Target Temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -45,6 +47,7 @@ SENSOR_DESCRIPTIONS: tuple[StaggSensorDescription, ...] = (
     ),
     StaggSensorDescription(
         key="boil_temp",
+        translation_key="boil_temp",
         name="Boil Temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -53,22 +56,26 @@ SENSOR_DESCRIPTIONS: tuple[StaggSensorDescription, ...] = (
     ),
     StaggSensorDescription(
         key="state_mode",
+        translation_key="state_mode",
         name="State Mode",
         icon="mdi:kettle-steam",
     ),
     StaggSensorDescription(
         key="clock_time",
+        translation_key="clock_time",
         name="Clock Time",
         icon="mdi:clock-time-eight-outline",
     ),
     StaggSensorDescription(
         key="schedule_time",
+        translation_key="schedule_time",
         name="Schedule Time",
         icon="mdi:calendar-clock-outline",
         entity_registry_enabled_default=False,
     ),
     StaggSensorDescription(
         key="schedule_temperature",
+        translation_key="schedule_temperature",
         name="Schedule Temperature",
         device_class=SensorDeviceClass.TEMPERATURE,
         native_unit_of_measurement=UnitOfTemperature.CELSIUS,
@@ -106,7 +113,7 @@ class StaggSensor(CoordinatorEntity[StaggLinkCoordinator], SensorEntity):
         device_id = f"stagglink_{self._ip.replace('.', '_')}"
 
         self._attr_has_entity_name = True
-        self._attr_name = description.name
+        self._attr_translation_key = description.key
         self._attr_unique_id = f"stagg_{self._ip.replace('.', '_')}_{description.key}"
 
         self._attr_device_info = DeviceInfo(

@@ -94,7 +94,7 @@ class StaggNumber(CoordinatorEntity[StaggLinkCoordinator], NumberEntity):
         device_id = f"stagglink_{self._ip.replace('.', '_')}"
 
         self._attr_has_entity_name = True
-        self._attr_name = name_suffix
+        self._attr_translation_key = key
         self._attr_unique_id = f"stagg_{self._ip.replace('.', '_')}_{key}"
         self._attr_native_min_value = min_val
         self._attr_native_max_value = max_val

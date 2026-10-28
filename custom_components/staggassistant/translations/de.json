@@ -31,5 +31,129 @@
         }
       }
     }
+  },
+  "entity": {
+    "sensor": {
+      "current_temp": {
+        "name": "Aktuelle Temperatur"
+      },
+      "target_temp": {
+        "name": "Zieltemperatur"
+      },
+      "boil_temp": {
+        "name": "Siedetemperatur"
+      },
+      "state_mode": {
+        "name": "Betriebszustand"
+      },
+      "clock_time": {
+        "name": "Uhrzeit"
+      },
+      "schedule_time": {
+        "name": "Zeitplan-Uhrzeit"
+      },
+      "schedule_temperature": {
+        "name": "Zeitplan-Temperatur"
+      }
+    },
+    "binary_sensor": {
+      "is_docked": {
+        "name": "Auf Basis"
+      },
+      "no_water": {
+        "name": "Niedrigwasser-Warnung"
+      },
+      "target_reached": {
+        "name": "Zieltemperatur erreicht"
+      },
+      "in_pre_boil": {
+        "name": "Pre-Boil aktiv"
+      },
+      "is_heating": {
+        "name": "Heizen aktiv"
+      },
+      "is_holding": {
+        "name": "Warmhalten aktiv"
+      }
+    },
+    "switch": {
+      "pre_boil": {
+        "name": "Pre-Boil"
+      }
+    },
+    "number": {
+      "hold_time_minutes": {
+        "name": "Warmhaltezeit"
+      },
+      "altitude_meters": {
+        "name": "Höheneinstellung"
+      },
+      "chime_volume": {
+        "name": "Signalton-Lautstärke"
+      },
+      "schedule_temperature": {
+        "name": "Zeitplan-Temperatur"
+      }
+    },
+    "select": {
+      "clock_mode": {
+        "name": "Uhrenstil",
+        "state": {
+          "off": "Aus",
+          "digital": "Digital",
+          "analog": "Analog"
+        }
+      },
+      "language": {
+        "name": "Sprachauswahl",
+        "state": {
+          "en": "Englisch",
+          "fr": "Französisch",
+          "es": "Spanisch",
+          "zh-Hans": "Vereinfachtes Chinesisch",
+          "zh-Hant": "Traditionelles Chinesisch",
+          "ko": "Koreanisch",
+          "ja": "Japanisch"
+        }
+      },
+      "units": {
+        "name": "Temperatureinheit",
+        "state": {
+          "C": "Celsius (°C)",
+          "F": "Fahrenheit (°F)"
+        }
+      },
+      "schedule_mode": {
+        "name": "Zeitplan-Modus",
+        "state": {
+          "off": "Aus",
+          "once": "Einmalig",
+          "repeat": "Täglich wiederholen"
+        }
+      }
+    },
+    "button": {
+      "press_button_2": {
+        "name": "Haupttaster drücken"
+      },
+      "press_button_1": {
+        "name": "Menütaste drücken"
+      },
+      "rotate_left": {
+        "name": "Drehknopf links drehen"
+      },
+      "rotate_right": {
+        "name": "Drehknopf rechts drehen"
+      },
+      "long_press_2": {
+        "name": "Brühtimer starten"
+      },
+      "sync_time": {
+        "name": "Uhrzeit synchronisieren"
+      },
+      "reload_data": {
+        "name": "Daten neu laden"
+      }
+    }
   }
 }

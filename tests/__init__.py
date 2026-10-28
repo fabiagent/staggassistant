@@ -144,6 +144,7 @@ if "homeassistant" not in sys.modules:
     class MockSensorEntityDescription:
         key: str = ""
         name: str = ""
+        translation_key: str | None = None
         device_class: any = None
         state_class: any = None
         native_unit_of_measurement: any = None
@@ -154,6 +155,7 @@ if "homeassistant" not in sys.modules:
     class MockBinarySensorEntityDescription:
         key: str = ""
         name: str = ""
+        translation_key: str | None = None
         device_class: any = None
         icon: str | None = None
         entity_registry_enabled_default: bool = True

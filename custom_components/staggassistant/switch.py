@@ -32,7 +32,7 @@ class StaggSwitch(CoordinatorEntity[StaggLinkCoordinator], SwitchEntity):
         device_id = f"stagglink_{self._ip.replace('.', '_')}"
 
         self._attr_has_entity_name = True
-        self._attr_name = name_suffix
+        self._attr_translation_key = "pre_boil"
         self._attr_unique_id = f"stagg_{self._ip.replace('.', '_')}_{setting_name}"
         self._attr_icon = icon
 

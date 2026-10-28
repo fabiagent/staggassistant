@@ -29,34 +29,40 @@ class StaggBinarySensorDescription(BinarySensorEntityDescription):
 BINARY_SENSOR_DESCRIPTIONS: tuple[StaggBinarySensorDescription, ...] = (
     StaggBinarySensorDescription(
         key="is_docked",
+        translation_key="is_docked",
         name="Docked",
         device_class=BinarySensorDeviceClass.CONNECTIVITY,
         icon="mdi:kettle",
     ),
     StaggBinarySensorDescription(
         key="no_water",
+        translation_key="no_water",
         name="Low Water Warning",
         device_class=BinarySensorDeviceClass.PROBLEM,
         icon="mdi:water-alert",
     ),
     StaggBinarySensorDescription(
         key="target_reached",
+        translation_key="target_reached",
         name="Target Temperature Reached",
         icon="mdi:thermometer-check",
     ),
     StaggBinarySensorDescription(
         key="in_pre_boil",
+        translation_key="in_pre_boil",
         name="Pre-Boil Active",
         icon="mdi:water-boiler",
         entity_registry_enabled_default=False,
     ),
     StaggBinarySensorDescription(
         key="is_heating",
+        translation_key="is_heating",
         name="Heating Active",
         icon="mdi:fire",
     ),
     StaggBinarySensorDescription(
         key="is_holding",
+        translation_key="is_holding",
         name="Hold Active",
         icon="mdi:timer-sand",
     ),
@@ -91,7 +97,7 @@ class StaggBinarySensor(CoordinatorEntity[StaggLinkCoordinator], BinarySensorEnt
         device_id = f"stagglink_{self._ip.replace('.', '_')}"
 
         self._attr_has_entity_name = True
-        self._attr_name = description.name
+        self._attr_translation_key = description.key
         self._attr_unique_id = f"stagg_{self._ip.replace('.', '_')}_{description.key}"
 
         self._attr_device_info = DeviceInfo(
