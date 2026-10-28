@@ -130,10 +130,10 @@ If you would like to test experimental features and rapid automated updates befo
 ## 🤖 AI Co-Maintenance & Development
 
 This repository is maintained by [@fabiankirchen](https://github.com/fabiankirchen) in collaboration with **`fabiagent`** (autonomous coding agent).
-* **Stable Upstream (Recommended):** [`fabiankirchen/staggassistant`](https://github.com/fabiankirchen/staggassistant) — Fully tested, verified, and officially released versions.
-* **Development Fork (Bleeding-Edge):** [`fabiagent/staggassistant`](https://github.com/fabiagent/staggassistant) — Rapid autonomous iterations, automated test builds, and pre-releases for early testers.
+* **Stable Upstream (Recommended):** [`fabiankirchen/staggassistant`](https://github.com/fabiankirchen/staggassistant) — **100% human-verified:** Every release and code change in this main repository is thoroughly tested on real physical kettle hardware by Fabian Kirchen before being merged and published.
+* **Development Fork (Bleeding-Edge):** [`fabiagent/staggassistant`](https://github.com/fabiagent/staggassistant) — Rapid autonomous iterations, automated test builds, and pre-releases for early testers before human hardware verification.
 
-All code changes are continuously verified by automated unit tests covering Python 3.11, 3.12, 3.13, Hassfest, and HACS validation.
+All code changes are continuously backed by automated unit test suites covering Python 3.11, 3.12, 3.13, Hassfest, and HACS validation.
 
 ---
 
