@@ -107,6 +107,14 @@ The integration exposes up to **27 entities** to fully monitor and manage your k
 3. Copy the `custom_components/staggassistant` folder into your Home Assistant `/config/custom_components/` directory (so that the path is `/config/custom_components/staggassistant`).
 4. Restart Home Assistant.
 
+### 🧪 Bleeding-Edge Beta Channel (Optional)
+
+If you would like to test experimental features and rapid automated updates before they are reviewed and merged into this stable repository, you can add the development fork as an additional custom repository in HACS:
+
+* **Repository URL:** `https://github.com/fabiagent/staggassistant`
+* **Category:** `Integration`
+*(Note: Releases on the development fork are autonomous builds intended for early testing).*
+
 ---
 
 ## ⚙️ Initial Setup
@@ -121,7 +129,11 @@ The integration exposes up to **27 entities** to fully monitor and manage your k
 
 ## 🤖 AI Co-Maintenance & Development
 
-This repository is maintained by [@fabiankirchen](https://github.com/fabiankirchen) in collaboration with **`fabiagent`** (autonomous coding agent). All code changes are verified by automated unit tests covering Python 3.11, 3.12, 3.13, Hassfest, and HACS validation.
+This repository is maintained by [@fabiankirchen](https://github.com/fabiankirchen) in collaboration with **`fabiagent`** (autonomous coding agent).
+* **Stable Upstream (Recommended):** [`fabiankirchen/staggassistant`](https://github.com/fabiankirchen/staggassistant) — Fully tested, verified, and officially released versions.
+* **Development Fork (Bleeding-Edge):** [`fabiagent/staggassistant`](https://github.com/fabiagent/staggassistant) — Rapid autonomous iterations, automated test builds, and pre-releases for early testers.
+
+All code changes are continuously verified by automated unit tests covering Python 3.11, 3.12, 3.13, Hassfest, and HACS validation.
 
 ---
 
