@@ -8,6 +8,7 @@ from homeassistant.components.climate.const import (
     HVACMode,
 )
 from homeassistant.const import ATTR_TEMPERATURE, UnitOfTemperature
+from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.device_registry import DeviceInfo
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
@@ -66,7 +67,10 @@ class StaggKettleClimate(CoordinatorEntity[StaggLinkCoordinator], ClimateEntity)
         mode = str(self.coordinator.data.get("mode", ""))
         if mode in ("S_Off", "S_Standby", "S_NoWater", "S_FAIL", "S_OTA"):
             return HVACMode.OFF
-        if (mode in ("S_Heat", "S_StartupToTempr") or "Heat" in mode) and "HeatOff" not in mode:
+        if (
+            (mode in ("S_Heat", "S_StartupToTempr", "S_PreBoil") or mode.startswith("S_Hold") or "Heat" in mode)
+            and "HeatOff" not in mode
+        ):
             return HVACMode.HEAT
         return HVACMode.OFF
 
@@ -78,8 +82,13 @@ class StaggKettleClimate(CoordinatorEntity[StaggLinkCoordinator], ClimateEntity)
         mode = str(self.coordinator.data.get("mode", ""))
         if mode in ("S_Off", "S_Standby", "S_NoWater", "S_FAIL", "S_OTA"):
             return HVACAction.OFF
-        if (mode in ("S_Heat", "S_StartupToTempr") or "Heat" in mode) and "HeatOff" not in mode:
+        if (
+            (mode in ("S_Heat", "S_StartupToTempr", "S_PreBoil") or "Heat" in mode or "WarmDuty" in mode)
+            and "HeatOff" not in mode
+        ):
             return HVACAction.HEATING
+        if mode.startswith("S_Hold"):
+            return HVACAction.IDLE
         return HVACAction.OFF
 
     @property
@@ -116,6 +125,14 @@ class StaggKettleClimate(CoordinatorEntity[StaggLinkCoordinator], ClimateEntity)
         if hvac_mode == HVACMode.OFF:
             await self.coordinator.async_send_command("ss S_Off")
         elif hvac_mode == HVACMode.HEAT:
+            if self.coordinator.data:
+                if not self.coordinator.data.get("is_docked", True):
+                    raise HomeAssistantError("Cannot start heating: Kettle is not on the base.")
+                if (
+                    self.coordinator.data.get("no_water")
+                    or str(self.coordinator.data.get("mode", "")) == "S_NoWater"
+                ):
+                    raise HomeAssistantError("Cannot start heating: Kettle reports low or no water (S_NoWater).")
             await self.coordinator.async_send_command("ss S_Heat")
 
         await self.coordinator.async_request_refresh()
@@ -132,9 +149,15 @@ class StaggKettleClimate(CoordinatorEntity[StaggLinkCoordinator], ClimateEntity)
             # 1. Send temperature target
             await self.coordinator.async_send_command(f"setsettingd settempr {fahrenheit}")
 
-            # 2. Only resume / signal heating mode if kettle is already heating
-            mode_str = str(self.coordinator.data.get("mode", "")) if self.coordinator.data else ""
-            if self.hvac_mode == HVACMode.HEAT or "Heat" in mode_str:
-                await self.coordinator.async_send_command("ss S_Heat")
+            # 2. Only resume / signal heating mode if kettle is already heating and safe
+            if self.hvac_mode == HVACMode.HEAT:
+                if self.coordinator.data and (
+                    not self.coordinator.data.get("is_docked", True)
+                    or self.coordinator.data.get("no_water")
+                    or str(self.coordinator.data.get("mode", "")) == "S_NoWater"
+                ):
+                    _LOGGER.warning("Refusing to resume heating after set_temperature due to safety interlock (undocked or no water).")
+                else:
+                    await self.coordinator.async_send_command("ss S_Heat")
 
             await self.coordinator.async_request_refresh()

@@ -61,9 +61,11 @@ class StaggButton(CoordinatorEntity[StaggLinkCoordinator], ButtonEntity):
 
         if self._command == "_long_press_2":
             # Hold main dial button for 2 seconds to trigger brew timer
-            await self.coordinator.async_send_command("2d")
-            await asyncio.sleep(2)
-            await self.coordinator.async_send_command("2u")
+            try:
+                await self.coordinator.async_send_command("2d")
+                await asyncio.sleep(2)
+            finally:
+                await self.coordinator.async_send_command("2u")
             await self.coordinator.async_request_refresh()
             return
 

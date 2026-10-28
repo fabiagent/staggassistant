@@ -704,10 +704,15 @@ ketl= ho 0 wd 0 nw 0 ipb 0 bf 0 tr 0
         self.assertEqual(climate.hvac_mode, HVACMode.HEAT)
         self.assertEqual(climate.hvac_action, HVACAction.HEATING)
 
-        # S_Hold (idle / non-heating)
+        # S_Hold (holding temperature - thermostat is active and idle)
         self.coordinator.data = {"mode": "S_Hold"}
-        self.assertEqual(climate.hvac_mode, HVACMode.OFF)
-        self.assertEqual(climate.hvac_action, HVACAction.OFF)
+        self.assertEqual(climate.hvac_mode, HVACMode.HEAT)
+        self.assertEqual(climate.hvac_action, HVACAction.IDLE)
+
+        # S_PreBoil (actively heating to 100C)
+        self.coordinator.data = {"mode": "S_PreBoil"}
+        self.assertEqual(climate.hvac_mode, HVACMode.HEAT)
+        self.assertEqual(climate.hvac_action, HVACAction.HEATING)
 
     # 15. Firmware 1.2.26 actuator and bench commands blocked
     async def test_firmware_1_2_26_blocked_actuator_commands(self):
@@ -889,6 +894,81 @@ ketl= ho 0 wd 0 nw 0 ipb 0 bf 0 tr 0
             result = await flow.async_step_user({"ip_address": "192.168.1.100"})
             self.assertEqual(result["type"], "create_entry")
             self.assertEqual(result["data"]["ip_address"], "192.168.1.100")
+
+    # 21. Climate safety interlock (blocks heating when undocked or low water)
+    async def test_climate_safety_interlock_blocks_heating(self):
+        """Test that attempting to turn on heating while undocked or low water raises HomeAssistantError."""
+        entry = MagicMock()
+        entry.data = {"ip_address": "192.168.1.100", "name": "Kettle"}
+        climate = StaggKettleClimate(self.coordinator, entry)
+        self.coordinator.async_send_command = AsyncMock()
+        self.coordinator.async_request_refresh = AsyncMock()
+
+        # Undocked
+        self.coordinator.data = {"is_docked": False, "mode": "S_Off", "no_water": False}
+        with self.assertRaises(HomeAssistantError) as ctx:
+            await climate.async_set_hvac_mode(HVACMode.HEAT)
+        self.assertIn("not on the base", str(ctx.exception))
+        self.coordinator.async_send_command.assert_not_called()
+
+        # Low water warning
+        self.coordinator.data = {"is_docked": True, "mode": "S_NoWater", "no_water": True}
+        with self.assertRaises(HomeAssistantError) as ctx:
+            await climate.async_set_hvac_mode(HVACMode.HEAT)
+        self.assertIn("low or no water", str(ctx.exception))
+        self.coordinator.async_send_command.assert_not_called()
+
+        # Safe on base with water
+        self.coordinator.data = {"is_docked": True, "mode": "S_Off", "no_water": False}
+        await climate.async_set_hvac_mode(HVACMode.HEAT)
+        self.coordinator.async_send_command.assert_called_with("ss S_Heat")
+
+    # 22. Climate set_temperature safety interlock
+    async def test_climate_set_temperature_safety_interlock(self):
+        """Test set_temperature sets target but refuses to resume heating if undocked or no water."""
+        entry = MagicMock()
+        entry.data = {"ip_address": "192.168.1.100", "name": "Kettle"}
+        climate = StaggKettleClimate(self.coordinator, entry)
+        self.coordinator.async_send_command = AsyncMock()
+        self.coordinator.async_request_refresh = AsyncMock()
+
+        # Undocked while in HEAT mode
+        self.coordinator.data = {"is_docked": False, "mode": "S_Heat", "no_water": False}
+        await climate.async_set_temperature(temperature=85)
+        # Should set target temperature (85 C -> 185 F) but NOT send ss S_Heat
+        self.coordinator.async_send_command.assert_called_once_with("setsettingd settempr 185")
+
+    # 23. Button long_press_2 guarantees button release (2u)
+    async def test_button_long_press_2_guarantees_release(self):
+        """Test that long_press_2 always sends 2u release command even on failure."""
+        from custom_components.staggassistant.button import StaggButton
+
+        entry = MagicMock()
+        entry.data = {"ip_address": "192.168.1.100", "name": "Kettle"}
+        btn = StaggButton(self.coordinator, entry, "long_press_2", "Start Timer", "mdi:timer-play", "_long_press_2")
+
+        commands_sent = []
+        async def mock_send(cmd):
+            commands_sent.append(cmd)
+            return "OK"
+
+        self.coordinator.async_send_command = mock_send
+        self.coordinator.async_request_refresh = AsyncMock()
+
+        with unittest.mock.patch("asyncio.sleep", new_callable=AsyncMock):
+            await btn.async_press()
+        self.assertEqual(commands_sent, ["2d", "2u"])
+
+    # 24. Persistent storage HA elevation fallback
+    async def test_storage_elevation_fallback(self):
+        """Test coordinator falls back to hass.config.elevation if stored altitude is missing."""
+        mock_hass = MagicMock()
+        mock_hass.config.elevation = 450
+        coord = StaggLinkCoordinator(mock_hass, "192.168.1.100", 15)
+        coord._store.async_load = AsyncMock(return_value={"altitude_meters": 0})
+
+        await coord.async_load_saved_settings()
+        self.assertEqual(coord._cached_settings["altitude_meters"], 450)
 
 
 if __name__ == "__main__":

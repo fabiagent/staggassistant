@@ -183,7 +183,15 @@ if "homeassistant" not in sys.modules:
     ha_switch = MagicMock()
     sys.modules["homeassistant.components.switch"] = ha_switch
 
+    class MockButtonEntity:
+        pass
+
     ha_button = MagicMock()
+    ha_button.ButtonEntity = MockButtonEntity
     sys.modules["homeassistant.components.button"] = ha_button
 
-    sys.modules["homeassistant.util.dt"] = MagicMock()
+    ha_util = MagicMock()
+    ha_dt = MagicMock()
+    ha_util.dt = ha_dt
+    sys.modules["homeassistant.util"] = ha_util
+    sys.modules["homeassistant.util.dt"] = ha_dt

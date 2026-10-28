@@ -81,8 +81,8 @@ class StaggAssistantConfigFlow(config_entries.ConfigFlow, domain=DOMAIN):
                                     raw_text = await _read_response_text(response, 65536)
                                     sanitized = re.sub(r':\s*[-+]?nan\b', ': null', raw_text, flags=re.IGNORECASE)
                                     data = json.loads(sanitized)
-                                    if isinstance(data, dict) and (
-                                        "state" in data or ("temp" in data and "temp_set" in data)
+                                    if isinstance(data, dict) and "temp" in data and (
+                                        "state" in data or "temp_set" in data
                                     ):
                                         connected = True
                     except (asyncio.TimeoutError, Exception):

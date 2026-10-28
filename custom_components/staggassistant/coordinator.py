@@ -124,11 +124,14 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
 
     async def async_load_saved_settings(self) -> None:
         """Load cached settings from persistent Home Assistant storage."""
+        elevation = getattr(getattr(self.hass, "config", None), "elevation", 0) or 0
         if self._store:
             try:
                 stored = await self._store.async_load()
                 if isinstance(stored, dict):
                     self._cached_settings.update(stored)
+                    if not self._cached_settings.get("altitude_meters") and elevation:
+                        self._cached_settings["altitude_meters"] = int(elevation)
                     _LOGGER.debug("Loaded cached settings from storage for %s", self.ip)
             except Exception as err:
                 _LOGGER.warning("Could not load stored settings for %s: %s", self.ip, err)
@@ -256,7 +259,7 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
                     # Sanitize unquoted nan / -nan / +nan before json.loads
                     sanitized = re.sub(r':\s*[-+]?nan\b', ': null', raw_text, flags=re.IGNORECASE)
                     data = json.loads(sanitized)
-                    if isinstance(data, dict) and ("state" in data or ("temp" in data and "temp_set" in data)):
+                    if isinstance(data, dict) and "temp" in data and ("temp_set" in data or "state" in data):
                         return data
         except Exception as err:
             _LOGGER.debug("Failed to read /temp JSON endpoint: %s", err)
@@ -347,7 +350,8 @@ class StaggLinkCoordinator(DataUpdateCoordinator):
                     has_settings = "st:" in settings_text or re.search(r'\bhold\s*[:=]', settings_text) is not None
                     if has_settings:
                         self._prtsettings_supported = True
-                    elif temp_data is not None and '<form action="cli"' in settings_text:
+                    elif temp_data is not None:
+                        # Firmware 1.2.26+ silenced textual output from /cli
                         self._prtsettings_supported = False
 
                     if has_settings:
