@@ -105,23 +105,10 @@
         }
       },
       "language": {
-        "name": "Sprachauswahl",
-        "state": {
-          "en": "Englisch",
-          "fr": "Französisch",
-          "es": "Spanisch",
-          "zh-Hans": "Vereinfachtes Chinesisch",
-          "zh-Hant": "Traditionelles Chinesisch",
-          "ko": "Koreanisch",
-          "ja": "Japanisch"
-        }
+        "name": "Sprachauswahl"
       },
       "units": {
-        "name": "Temperatureinheit",
-        "state": {
-          "C": "Celsius (°C)",
-          "F": "Fahrenheit (°F)"
-        }
+        "name": "Temperatureinheit"
       },
       "schedule_mode": {
         "name": "Zeitplan-Modus",

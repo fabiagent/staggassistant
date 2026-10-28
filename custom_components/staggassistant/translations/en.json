@@ -105,23 +105,10 @@
         }
       },
       "language": {
-        "name": "Language selection",
-        "state": {
-          "en": "English",
-          "fr": "French",
-          "es": "Spanish",
-          "zh-Hans": "Simplified Chinese",
-          "zh-Hant": "Traditional Chinese",
-          "ko": "Korean",
-          "ja": "Japanese"
-        }
+        "name": "Language selection"
       },
       "units": {
-        "name": "Temperature units",
-        "state": {
-          "C": "Celsius (°C)",
-          "F": "Fahrenheit (°F)"
-        }
+        "name": "Temperature units"
       },
       "schedule_mode": {
         "name": "Schedule mode",
